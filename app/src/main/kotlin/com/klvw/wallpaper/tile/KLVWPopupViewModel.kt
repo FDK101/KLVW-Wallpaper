@@ -92,6 +92,8 @@ class KLVWPopupViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
     val quickSetLockStaticUri: StateFlow<String?> = prefs.quickSetLockStaticUri
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    val quickSetWatchPresetId: StateFlow<String?> = prefs.quickSetWatchPresetId
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
     // Timer state
     val timerPaused: StateFlow<Map<String, Boolean>> = timerManager.paused
     val timerNextFireTimes: StateFlow<Map<String, Long>> = timerManager.nextFireTimes
@@ -135,17 +137,25 @@ class KLVWPopupViewModel @Inject constructor(
         viewModelScope.launch {
             if (!prefs.appEnabled.first()) return@launch
             val bundle = Bundle().apply {
-                putString("presetName", preset.presetName)
-                putString("presetType", preset.presetType)
+                putString("watchface", preset.watchFaceName)
+                putString("net.dinglisch.android.tasker.extras.ACTION_RUNNER_CLASS", preset.receiverClass)
+                if (preset.inputClass.isNotBlank()) {
+                    putString("net.dinglisch.android.tasker.extras.ACTION_INPUT_CLASS", preset.inputClass)
+                }
+                putBoolean("net.dinglisch.android.tasker.extras.EXTRA_WAS_CONFIGURED_BEFORE", true)
+                putString("net.dinglisch.android.tasker.extras.VARIABLE_REPLACE_KEYS", "watchface")
             }
+            // Start IntentServiceAction directly — BroadcastReceiverAction fails because Pujie
+            // is in the background and can't self-start a foreground service. KLVW's foreground
+            // state (active popup) allows it to start exported services in other packages.
             val intent = Intent("com.twofortyfouram.locale.intent.action.FIRE_SETTING").apply {
                 setClassName(
                     "com.pujie.watchfaces",
-                    "com.joaomgcd.taskerpluginlibrary.action.BroadcastReceiverAction"
+                    "com.joaomgcd.taskerpluginlibrary.action.IntentServiceAction"
                 )
                 putExtra("com.twofortyfouram.locale.intent.extra.BUNDLE", bundle)
             }
-            context.sendBroadcast(intent)
+            context.startForegroundService(intent)
         }
     }
 
@@ -180,6 +190,7 @@ class KLVWPopupViewModel @Inject constructor(
     fun setQuickSetLockAction(action: String) { viewModelScope.launch { prefs.setQuickSetLockAction(action) } }
     fun setQuickSetHomeStaticUri(uri: String?) { viewModelScope.launch { prefs.setQuickSetHomeStaticUri(uri) } }
     fun setQuickSetLockStaticUri(uri: String?) { viewModelScope.launch { prefs.setQuickSetLockStaticUri(uri) } }
+    fun setQuickSetWatchPresetId(id: String?) { viewModelScope.launch { prefs.setQuickSetWatchPresetId(id) } }
     // Timer controls
     fun pauseTimer(key: String) = timerManager.pause(key)
     fun resumeTimer(key: String) = timerManager.resume(key)

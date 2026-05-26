@@ -1,5 +1,6 @@
 package com.klvw.wallpaper.tile
 
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -30,6 +31,7 @@ class KLVWQuickSetActivity : ComponentActivity() {
                 val lockAction = prefs.quickSetLockAction.first()
                 applyAction(homeAction, WallpaperTarget.HOME)
                 applyAction(lockAction, WallpaperTarget.LOCK)
+                applyWatchAction()
                 if (homeAction == "static_image" && lockAction == "static_image") {
                     prefs.setAppEnabled(false)
                 }
@@ -62,6 +64,26 @@ class KLVWQuickSetActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    private suspend fun applyWatchAction() {
+        val presetId = prefs.quickSetWatchPresetId.first() ?: return
+        val preset = PujieWatchFacePreset.fromJsonArray(prefs.pujieWatchFacesJson.first())
+            .find { it.id == presetId } ?: return
+        val bundle = Bundle().apply {
+            putString("watchface", preset.watchFaceName)
+            putString("net.dinglisch.android.tasker.extras.ACTION_RUNNER_CLASS", preset.receiverClass)
+            if (preset.inputClass.isNotBlank())
+                putString("net.dinglisch.android.tasker.extras.ACTION_INPUT_CLASS", preset.inputClass)
+            putBoolean("net.dinglisch.android.tasker.extras.EXTRA_WAS_CONFIGURED_BEFORE", true)
+            putString("net.dinglisch.android.tasker.extras.VARIABLE_REPLACE_KEYS", "watchface")
+        }
+        val intent = Intent("com.twofortyfouram.locale.intent.action.FIRE_SETTING").apply {
+            setClassName("com.pujie.watchfaces",
+                "com.joaomgcd.taskerpluginlibrary.action.IntentServiceAction")
+            putExtra("com.twofortyfouram.locale.intent.extra.BUNDLE", bundle)
+        }
+        startForegroundService(intent)
     }
 
     private suspend fun resolveDefaultFolderUri(type: FolderType, target: WallpaperTarget): String? = when {

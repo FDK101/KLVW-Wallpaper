@@ -38,6 +38,7 @@
         <provider android:authorities="net.dinglisch.android.tasker" />
         <provider android:authorities="net.dinglisch.android.tasker.TaskerContentProvider" />
         <provider android:authorities="net.dinglisch.android.taskerm.TaskerContentProvider" />
+        <package android:name="com.pujie.watchfaces" />
     </queries>
 
     <application

@@ -72,6 +72,7 @@ class SettingsPreferences @Inject constructor(
         val QUICK_SET_LOCK_ACTION = stringPreferencesKey("quick_set_lock_action")
         val QUICK_SET_HOME_STATIC_URI = stringPreferencesKey("quick_set_home_static_uri")
         val QUICK_SET_LOCK_STATIC_URI = stringPreferencesKey("quick_set_lock_static_uri")
+        val QUICK_SET_WATCH_PRESET_ID = stringPreferencesKey("quick_set_watch_preset_id")
         // Display Control (on-unlock wallpaper cycling)
         val DISPLAY_CONTROL_HOME_IMAGE = booleanPreferencesKey("display_control_home_image")
         val DISPLAY_CONTROL_HOME_VIDEO = booleanPreferencesKey("display_control_home_video")
@@ -144,6 +145,7 @@ class SettingsPreferences @Inject constructor(
     val quickSetLockAction: Flow<String> = context.dataStore.data.map { it[Keys.QUICK_SET_LOCK_ACTION] ?: "random_image" }.distinctUntilChanged()
     val quickSetHomeStaticUri: Flow<String?> = context.dataStore.data.map { it[Keys.QUICK_SET_HOME_STATIC_URI] }.distinctUntilChanged()
     val quickSetLockStaticUri: Flow<String?> = context.dataStore.data.map { it[Keys.QUICK_SET_LOCK_STATIC_URI] }.distinctUntilChanged()
+    val quickSetWatchPresetId: Flow<String?> = context.dataStore.data.map { it[Keys.QUICK_SET_WATCH_PRESET_ID] }.distinctUntilChanged()
     val homeImageTimerEnabled: Flow<Boolean> = context.dataStore.data.map { it[Keys.HOME_IMAGE_TIMER_ENABLED] ?: false }.distinctUntilChanged()
     val homeImageTimerIntervalMin: Flow<Int> = context.dataStore.data.map { it[Keys.HOME_IMAGE_TIMER_INTERVAL_MIN] ?: 60 }.distinctUntilChanged()
     val homeVideoTimerEnabled: Flow<Boolean> = context.dataStore.data.map { it[Keys.HOME_VIDEO_TIMER_ENABLED] ?: false }.distinctUntilChanged()
@@ -387,6 +389,13 @@ class SettingsPreferences @Inject constructor(
         context.dataStore.edit {
             if (uri != null) it[Keys.QUICK_SET_LOCK_STATIC_URI] = uri
             else it.remove(Keys.QUICK_SET_LOCK_STATIC_URI)
+        }
+    }
+
+    suspend fun setQuickSetWatchPresetId(id: String?) {
+        context.dataStore.edit {
+            if (id != null) it[Keys.QUICK_SET_WATCH_PRESET_ID] = id
+            else it.remove(Keys.QUICK_SET_WATCH_PRESET_ID)
         }
     }
 

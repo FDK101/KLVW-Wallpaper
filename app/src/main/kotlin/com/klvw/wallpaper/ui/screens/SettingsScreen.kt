@@ -3,6 +3,7 @@ package com.klvw.wallpaper.ui.screens
 import android.app.Activity.RESULT_OK
 import android.app.WallpaperManager
 import android.content.Intent
+import android.os.Bundle
 import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -390,6 +391,8 @@ private fun QuickSetTileSection(popupViewModel: KLVWPopupViewModel) {
     val homeStaticUri by popupViewModel.quickSetHomeStaticUri.collectAsStateWithLifecycle()
     val lockStaticUri by popupViewModel.quickSetLockStaticUri.collectAsStateWithLifecycle()
     val staticImages by popupViewModel.staticImages.collectAsStateWithLifecycle()
+    val watchPresetId by popupViewModel.quickSetWatchPresetId.collectAsStateWithLifecycle()
+    val pujiePresets by popupViewModel.pujieWatchFaces.collectAsStateWithLifecycle()
 
     val actions = listOf(
         "random_image" to "Random Image",
@@ -474,6 +477,37 @@ private fun QuickSetTileSection(popupViewModel: KLVWPopupViewModel) {
                         Spacer(Modifier.width(4.dp))
                         Text(img.displayName, style = MaterialTheme.typography.bodySmall)
                     }
+                }
+            }
+        }
+
+        HorizontalDivider(thickness = 0.5.dp)
+
+        // Watch action
+        Text("Watch Face", style = MaterialTheme.typography.labelMedium)
+        if (pujiePresets.isEmpty()) {
+            Text(
+                "No Pujie watch faces saved. Add them in the Pujie Watch Faces section below.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                RadioButton(
+                    selected = watchPresetId == null,
+                    onClick = { popupViewModel.setQuickSetWatchPresetId(null) }
+                )
+                Spacer(Modifier.width(4.dp))
+                Text("None (skip watch face)", style = MaterialTheme.typography.bodySmall)
+            }
+            pujiePresets.forEach { preset ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(
+                        selected = watchPresetId == preset.id,
+                        onClick = { popupViewModel.setQuickSetWatchPresetId(preset.id) }
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(preset.displayName, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
@@ -588,11 +622,18 @@ private fun PujieWatchFaceSection(popupViewModel: KLVWPopupViewModel) {
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK) {
             val bundle = result.data?.getBundleExtra("com.twofortyfouram.locale.intent.extra.BUNDLE")
-            val presetName = bundle?.getString("presetName") ?: return@rememberLauncherForActivityResult
-            val presetType = bundle.getString("presetType") ?: ""
-            val blurb = result.data?.getStringExtra("com.twofortyfouram.locale.intent.extra.STRING_BLURB")
-                ?.takeIf { it.isNotBlank() } ?: presetName
-            val newPreset = PujieWatchFacePreset(displayName = blurb, presetName = presetName, presetType = presetType)
+                ?: return@rememberLauncherForActivityResult
+            val watchFaceName = bundle.getString("watchface")
+                ?: return@rememberLauncherForActivityResult
+            val receiverClass = bundle.getString("net.dinglisch.android.tasker.extras.ACTION_RUNNER_CLASS")
+                ?: "com.pujie.wristwear.pujieblack.tasker.EditPresetActivity\$TaskerWatchFaceReceiver"
+            val inputClass = bundle.getString("net.dinglisch.android.tasker.extras.ACTION_INPUT_CLASS") ?: ""
+            val newPreset = PujieWatchFacePreset(
+                displayName = watchFaceName,
+                watchFaceName = watchFaceName,
+                receiverClass = receiverClass,
+                inputClass = inputClass
+            )
             popupViewModel.savePujieWatchFaces(presets + newPreset)
         }
     }
@@ -654,6 +695,8 @@ private fun PujieWatchFaceSection(popupViewModel: KLVWPopupViewModel) {
                         Intent("com.twofortyfouram.locale.intent.action.EDIT_SETTING").apply {
                             setClassName("com.pujie.watchfaces",
                                 "com.pujie.wristwear.pujieblack.tasker.EditPresetActivity")
+                            // Required by joaomgcd's TaskerPluginLibrary: signals a Tasker-compatible host
+                            putExtra("com.twofortyfouram.locale.intent.extra.BUNDLE", Bundle())
                         }
                     )
                 },

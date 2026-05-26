@@ -54,22 +54,25 @@ const val POPUP_ACTION_PUJIE_WATCH_FACE = "pujie_watch_face"
 data class PujieWatchFacePreset(
     val id: String = UUID.randomUUID().toString(),
     val displayName: String,
-    val presetName: String,
-    val presetType: String
+    val watchFaceName: String,
+    val receiverClass: String,
+    val inputClass: String = ""
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id)
         put("displayName", displayName)
-        put("presetName", presetName)
-        put("presetType", presetType)
+        put("watchFaceName", watchFaceName)
+        put("receiverClass", receiverClass)
+        put("inputClass", inputClass)
     }
 
     companion object {
         fun fromJson(obj: JSONObject) = PujieWatchFacePreset(
             id = obj.optString("id").ifBlank { UUID.randomUUID().toString() },
             displayName = obj.optString("displayName"),
-            presetName = obj.optString("presetName"),
-            presetType = obj.optString("presetType")
+            watchFaceName = obj.optString("watchFaceName"),
+            receiverClass = obj.optString("receiverClass"),
+            inputClass = obj.optString("inputClass")
         )
 
         fun fromJsonArray(json: String): List<PujieWatchFacePreset> = try {
