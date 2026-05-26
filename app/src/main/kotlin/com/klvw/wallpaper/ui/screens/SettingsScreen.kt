@@ -25,6 +25,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil3.SingletonImageLoader
 import com.klvw.wallpaper.tile.KLVWPopupViewModel
 import com.klvw.wallpaper.tile.PopupItem
 import com.klvw.wallpaper.ui.theme.SurfaceGlass
@@ -51,6 +52,19 @@ fun SettingsScreen(viewModel: WallpaperViewModel, popupViewModel: KLVWPopupViewM
                 subtitle = "Use Vulkan for hardware-accelerated image rendering",
                 checked = state.useVulkan,
                 onCheckedChange = { viewModel.setUseVulkan(it) }
+            )
+            HorizontalDivider(thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 4.dp))
+            val imageLoader = SingletonImageLoader.get(context)
+            var cacheCleared by remember { mutableStateOf(false) }
+            SettingAction(
+                icon = Icons.Default.DeleteSweep,
+                title = "Clear Thumbnail Cache",
+                subtitle = if (cacheCleared) "Cache cleared" else "Remove cached thumbnails so replaced files show fresh",
+                onClick = {
+                    imageLoader.memoryCache?.clear()
+                    imageLoader.diskCache?.clear()
+                    cacheCleared = true
+                }
             )
         }
 

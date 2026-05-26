@@ -73,7 +73,8 @@ class FolderRepository @Inject constructor(
                 arrayOf(
                     DocumentsContract.Document.COLUMN_DOCUMENT_ID,
                     DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-                    DocumentsContract.Document.COLUMN_MIME_TYPE
+                    DocumentsContract.Document.COLUMN_MIME_TYPE,
+                    DocumentsContract.Document.COLUMN_LAST_MODIFIED
                 ),
                 null, null, null
             )?.use { cursor ->
@@ -81,6 +82,7 @@ class FolderRepository @Inject constructor(
                     val docId = cursor.getString(0) ?: continue
                     val name = cursor.getString(1) ?: continue
                     val mime = cursor.getString(2) ?: continue
+                    val lastModified = if (!cursor.isNull(3)) cursor.getLong(3) else 0L
                     when {
                         mime.startsWith(mimePrefix) -> {
                             val fileUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
@@ -88,7 +90,8 @@ class FolderRepository @Inject constructor(
                                 uri = fileUri,
                                 type = type,
                                 displayName = name,
-                                folderUri = folderUri
+                                folderUri = folderUri,
+                                lastModified = lastModified
                             )
                         }
                         mime == DocumentsContract.Document.MIME_TYPE_DIR && maxDepth > 0 ->

@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import coil3.memory.MemoryCache
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.size.Scale
@@ -336,13 +337,16 @@ private fun MediaThumbnail(
     ) {
         val context = LocalContext.current
         AsyncImage(
-            model = remember(item.uri) {
+            model = remember(item.uri, item.lastModified) {
+                val cacheKey = "${item.uri}_${item.lastModified}"
                 ImageRequest.Builder(context)
                     .data(item.uri)
                     .size(360, 640)
                     .scale(Scale.FILL)
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .diskCachePolicy(CachePolicy.ENABLED)
+                    .memoryCacheKey(MemoryCache.Key(cacheKey))
+                    .diskCacheKey(cacheKey)
                     .build()
             },
             contentDescription = item.displayName,
@@ -424,13 +428,16 @@ private fun MediaPreviewDialog(
                 VideoPlayer(uri = item.uri, modifier = Modifier.fillMaxSize())
             } else {
                 AsyncImage(
-                    model = remember(item.uri) {
+                    model = remember(item.uri, item.lastModified) {
+                        val cacheKey = "${item.uri}_${item.lastModified}"
                         ImageRequest.Builder(context)
                             .data(item.uri)
                             .size(maxWidthPx, maxHeightPx)
                             .scale(Scale.FIT)
                             .memoryCachePolicy(CachePolicy.ENABLED)
                             .diskCachePolicy(CachePolicy.ENABLED)
+                            .memoryCacheKey(MemoryCache.Key(cacheKey))
+                            .diskCacheKey(cacheKey)
                             .build()
                     },
                     contentDescription = item.displayName,

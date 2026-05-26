@@ -8,5 +8,6 @@ data class WallpaperItem(
     val uri: Uri,
     val type: FolderType,
     val displayName: String,
-    val folderUri: String
+    val folderUri: String,
+    val lastModified: Long = 0L
 )
