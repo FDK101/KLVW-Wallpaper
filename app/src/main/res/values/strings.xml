@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">KLVW Wallpaper</string>
+    <string name="wallpaper_service_label">KLVW Live Wallpaper</string>
+    <string name="wallpaper_service_description">Set images and videos as wallpaper for home and lockscreen independently</string>
+    <string name="wallpaper_lock_service_label">KLVW Lock Screen</string>
+    <string name="wallpaper_lock_service_description">Set images and videos as lock screen wallpaper</string>
+    <string name="tasker_action_label">KLVW Wallpaper</string>
+    <string name="klvw_popup_tile_label">KLVW</string>
+    <string name="quick_set_tile_label">KLVW Quick Set</string>
+</resources>

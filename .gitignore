@@ -1,0 +1,37 @@
+# Built outputs
+build/
+app/build/
+*.apk
+*.aab
+*.aar
+
+# Gradle wrapper (keep gradlew scripts, ignore cache)
+.gradle/
+gradle/wrapper/gradle-wrapper.jar
+
+# Local environment — never commit
+local.properties
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Kotlin incremental compilation
+app/src/main/kotlin/**/*.class
+
+# C++ incremental build outputs
+app/.cxx/
+
+# Signing key / keystore — never commit
+Key
+*.jks
+*.keystore
+
+# Release build outputs
+app/release/
+
+# OS
+.DS_Store
+Thumbs.db

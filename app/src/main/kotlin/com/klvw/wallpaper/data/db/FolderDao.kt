@@ -1,0 +1,32 @@
+package com.klvw.wallpaper.data.db
+
+import androidx.room.*
+import com.klvw.wallpaper.data.model.FolderType
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface FolderDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(folder: FolderEntity): Long
+
+    @Delete
+    suspend fun delete(folder: FolderEntity)
+
+    @Query("SELECT * FROM folders ORDER BY addedAt DESC")
+    fun getAll(): Flow<List<FolderEntity>>
+
+    @Query("SELECT * FROM folders WHERE type = :type ORDER BY lastUsed DESC, addedAt DESC")
+    fun getByType(type: FolderType): Flow<List<FolderEntity>>
+
+    @Query("UPDATE folders SET lastUsed = :time WHERE id = :id")
+    suspend fun updateLastUsed(id: Long, time: Long = System.currentTimeMillis())
+
+    @Query("SELECT * FROM folders WHERE uri = :uri LIMIT 1")
+    suspend fun findByUri(uri: String): FolderEntity?
+
+    @Query("SELECT * FROM folders WHERE displayName = :name COLLATE NOCASE AND type = :type LIMIT 1")
+    suspend fun findByDisplayName(name: String, type: FolderType): FolderEntity?
+
+    @Query("SELECT * FROM folders WHERE type = :type ORDER BY lastUsed DESC, addedAt DESC")
+    suspend fun getAllByType(type: FolderType): List<FolderEntity>
+}

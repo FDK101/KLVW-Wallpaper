@@ -1,0 +1,108 @@
+package com.klvw.wallpaper.data.repository
+
+import android.content.Context
+import android.net.Uri
+import android.provider.DocumentsContract
+import com.klvw.wallpaper.data.db.FolderDao
+import com.klvw.wallpaper.data.db.FolderEntity
+import com.klvw.wallpaper.data.model.FolderType
+import com.klvw.wallpaper.data.model.WallpaperItem
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
+import javax.inject.Inject
+import javax.inject.Singleton
+
+@Singleton
+class FolderRepository @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val folderDao: FolderDao
+) {
+    fun getAllFolders(): Flow<List<FolderEntity>> = folderDao.getAll()
+
+    fun getFoldersByType(type: FolderType): Flow<List<FolderEntity>> = folderDao.getByType(type)
+
+    suspend fun addFolder(uri: Uri, type: FolderType): Long {
+        val displayName = resolveDisplayName(uri) ?: uri.lastPathSegment ?: "Folder"
+        val existing = folderDao.findByUri(uri.toString())
+        if (existing != null) return existing.id
+        return folderDao.insert(FolderEntity(uri = uri.toString(), displayName = displayName, type = type))
+    }
+
+    suspend fun removeFolder(folder: FolderEntity) = folderDao.delete(folder)
+
+    suspend fun touchFolder(id: Long) = folderDao.updateLastUsed(id)
+
+    suspend fun findFolderByDisplayName(name: String, type: FolderType): FolderEntity? {
+        val trimmed = name.trim()
+        // Exact case-insensitive match via SQL
+        folderDao.findByDisplayName(trimmed, type)?.let { return it }
+        // Fuzzy fallback: the stored displayName may be "primary:Random" when the folder is "Random"
+        // (happens when resolveDisplayName falls back to uri.lastPathSegment on SAF tree URIs)
+        return folderDao.getAllByType(type).find { folder ->
+            folder.displayName.substringAfterLast(':').trim().equals(trimmed, ignoreCase = true) ||
+            folder.displayName.substringAfterLast('/').trim().equals(trimmed, ignoreCase = true)
+        }
+    }
+
+    suspend fun getItemsFromFolder(folderUri: String, type: FolderType): List<WallpaperItem> =
+        withContext(Dispatchers.IO) {
+            val results = mutableListOf<WallpaperItem>()
+            try {
+                val rootUri = Uri.parse(folderUri)
+                val rootDocId = DocumentsContract.getTreeDocumentId(rootUri)
+                scanDocumentTree(rootUri, rootDocId, type, folderUri, results, maxDepth = 2)
+            } catch (_: Exception) {}
+            results
+        }
+
+    private fun scanDocumentTree(
+        treeUri: Uri,
+        parentDocId: String,
+        type: FolderType,
+        folderUri: String,
+        results: MutableList<WallpaperItem>,
+        maxDepth: Int
+    ) {
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocId)
+        val mimePrefix = if (type == FolderType.IMAGE) "image/" else "video/"
+        try {
+            context.contentResolver.query(
+                childrenUri,
+                arrayOf(
+                    DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                    DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                    DocumentsContract.Document.COLUMN_MIME_TYPE
+                ),
+                null, null, null
+            )?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    val docId = cursor.getString(0) ?: continue
+                    val name = cursor.getString(1) ?: continue
+                    val mime = cursor.getString(2) ?: continue
+                    when {
+                        mime.startsWith(mimePrefix) -> {
+                            val fileUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
+                            results += WallpaperItem(
+                                uri = fileUri,
+                                type = type,
+                                displayName = name,
+                                folderUri = folderUri
+                            )
+                        }
+                        mime == DocumentsContract.Document.MIME_TYPE_DIR && maxDepth > 0 ->
+                            scanDocumentTree(treeUri, docId, type, folderUri, results, maxDepth - 1)
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun resolveDisplayName(uri: Uri): String? {
+        return try {
+            context.contentResolver.query(uri, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)
+                ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+        } catch (_: Exception) { null }
+    }
+}

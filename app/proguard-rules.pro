@@ -1,0 +1,4 @@
+-keep class com.klvw.wallpaper.tasker.** { *; }
+-keep class com.twofortyfouram.** { *; }
+-keepattributes *Annotation*
+-keepclassmembers class * extends androidx.room.RoomDatabase { *; }

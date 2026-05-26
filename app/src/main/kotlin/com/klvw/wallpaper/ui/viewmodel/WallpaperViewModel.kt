@@ -1,0 +1,292 @@
+package com.klvw.wallpaper.ui.viewmodel
+
+import android.net.Uri
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.klvw.wallpaper.data.db.FolderEntity
+import com.klvw.wallpaper.data.model.FolderType
+import com.klvw.wallpaper.data.model.WallpaperItem
+import com.klvw.wallpaper.data.model.WallpaperTarget
+import com.klvw.wallpaper.data.prefs.SettingsPreferences
+import com.klvw.wallpaper.data.repository.FolderRepository
+import com.klvw.wallpaper.data.repository.StaticImageRepository
+import com.klvw.wallpaper.data.repository.WallpaperRepository
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+
+enum class MediaTab { IMAGE, STATIC, VIDEO }
+
+data class WallpaperUiState(
+    val isLoading: Boolean = false,
+    val isLoadingPreview: Boolean = false,
+    val successMessage: String? = null,
+    val errorMessage: String? = null,
+    val selectedItem: WallpaperItem? = null,
+    val mediaTab: MediaTab = MediaTab.IMAGE,
+    val target: WallpaperTarget = WallpaperTarget.HOME,
+    val previewItems: List<WallpaperItem> = emptyList(),
+    val staticImages: List<WallpaperItem> = emptyList(),
+    val imageFolders: List<FolderEntity> = emptyList(),
+    val videoFolders: List<FolderEntity> = emptyList(),
+    val useVulkan: Boolean = true,
+    val forceIconColor: String = "auto",
+    val tileRandomImageTarget: String = "both",
+    val tileRandomVideoTarget: String = "both",
+    val tileRestoreTarget: String = "both",
+    val tileStaticImageUri: String? = null,
+    val tileStaticImageName: String = "",
+    val tileStaticImageTarget: String = "both",
+    val promptActivateServiceClass: String? = null,
+    val pendingPromptLock: Boolean = false,
+    val selectedFolderUri: String? = null,
+    val defaultHomeImageFolderUri: String? = null,
+    val defaultLockImageFolderUri: String? = null,
+    val defaultHomeVideoFolderUri: String? = null,
+    val defaultLockVideoFolderUri: String? = null,
+)
+
+@HiltViewModel
+class WallpaperViewModel @Inject constructor(
+    private val folderRepository: FolderRepository,
+    private val wallpaperRepository: WallpaperRepository,
+    private val staticImageRepository: StaticImageRepository,
+    private val prefs: SettingsPreferences
+) : ViewModel() {
+
+    private val _state = MutableStateFlow(WallpaperUiState())
+    val state: StateFlow<WallpaperUiState> = _state.asStateFlow()
+
+    // In-memory cache — avoids async prefs reads on every tab switch
+    private var savedImageFolderUri: String? = null
+    private var savedVideoFolderUri: String? = null
+
+    init {
+        viewModelScope.launch {
+            // Load persisted folder selections once before first emit
+            savedImageFolderUri = prefs.activeImageFolderUri.first()
+            savedVideoFolderUri = prefs.activeVideoFolderUri.first()
+            _state.update { it.copy(selectedFolderUri = savedImageFolderUri) }
+
+            combine(
+                folderRepository.getFoldersByType(FolderType.IMAGE),
+                folderRepository.getFoldersByType(FolderType.VIDEO),
+                prefs.useVulkan
+            ) { imgFolders, vidFolders, useVulkan ->
+                Triple(imgFolders, vidFolders, useVulkan)
+            }.collect { (img, vid, vulkan) ->
+                _state.update { it.copy(imageFolders = img, videoFolders = vid, useVulkan = vulkan) }
+                loadPreviewItems(clearFirst = false)
+            }
+        }
+
+        viewModelScope.launch {
+            prefs.forceIconColor.collect { color ->
+                _state.update { it.copy(forceIconColor = color) }
+            }
+        }
+
+        viewModelScope.launch {
+            combine(
+                prefs.tileRandomImageTarget,
+                prefs.tileRandomVideoTarget,
+                prefs.tileRestoreTarget
+            ) { img, vid, restore -> Triple(img, vid, restore) }
+                .collect { (img, vid, restore) ->
+                    _state.update { it.copy(tileRandomImageTarget = img, tileRandomVideoTarget = vid, tileRestoreTarget = restore) }
+                }
+        }
+
+        viewModelScope.launch {
+            combine(
+                prefs.tileStaticImageUri,
+                prefs.tileStaticImageName,
+                prefs.tileStaticImageTarget
+            ) { uri, name, target -> Triple(uri, name, target) }
+                .collect { (uri, name, target) ->
+                    _state.update { it.copy(tileStaticImageUri = uri, tileStaticImageName = name, tileStaticImageTarget = target) }
+                }
+        }
+
+        viewModelScope.launch {
+            staticImageRepository.getAll().collect { items ->
+                _state.update { s ->
+                    val preview = if (s.mediaTab == MediaTab.STATIC) items else s.previewItems
+                    s.copy(staticImages = items, previewItems = preview)
+                }
+            }
+        }
+
+        viewModelScope.launch {
+            combine(
+                prefs.defaultHomeImageFolderUri,
+                prefs.defaultLockImageFolderUri,
+                prefs.defaultHomeVideoFolderUri,
+                prefs.defaultLockVideoFolderUri
+            ) { homeImg, lockImg, homeVid, lockVid ->
+                listOf(homeImg, lockImg, homeVid, lockVid)
+            }.collect { d ->
+                _state.update { it.copy(
+                    defaultHomeImageFolderUri = d[0],
+                    defaultLockImageFolderUri = d[1],
+                    defaultHomeVideoFolderUri = d[2],
+                    defaultLockVideoFolderUri = d[3]
+                )}
+            }
+        }
+    }
+
+    fun setMediaTab(tab: MediaTab) {
+        val folderUri = when (tab) {
+            MediaTab.IMAGE -> savedImageFolderUri
+            MediaTab.VIDEO -> savedVideoFolderUri
+            MediaTab.STATIC -> null
+        }
+        _state.update { it.copy(mediaTab = tab, selectedItem = null, selectedFolderUri = folderUri) }
+        loadPreviewItems(clearFirst = true)
+    }
+
+    fun setTarget(target: WallpaperTarget) {
+        _state.update { it.copy(target = target) }
+    }
+
+    fun selectItem(item: WallpaperItem) {
+        _state.update { it.copy(selectedItem = item) }
+    }
+
+    fun selectFolder(folderUri: String?) {
+        val tab = _state.value.mediaTab
+        if (tab == MediaTab.IMAGE) savedImageFolderUri = folderUri
+        else if (tab == MediaTab.VIDEO) savedVideoFolderUri = folderUri
+        _state.update { it.copy(selectedFolderUri = folderUri, selectedItem = null) }
+        loadPreviewItems(clearFirst = true)
+        viewModelScope.launch {
+            if (tab == MediaTab.IMAGE) prefs.setActiveImageFolder(folderUri)
+            else if (tab == MediaTab.VIDEO) prefs.setActiveVideoFolder(folderUri)
+        }
+    }
+
+    fun setWallpaper() {
+        val item = _state.value.selectedItem ?: return
+        viewModelScope.launch {
+            _state.update { it.copy(isLoading = true, errorMessage = null) }
+            try {
+                val target = _state.value.target
+                wallpaperRepository.setWallpaper(item, target)
+
+                val homeNeeded = (target == WallpaperTarget.HOME || target == WallpaperTarget.BOTH)
+                    && !wallpaperRepository.isHomeServiceActive()
+                val lockNeeded = (target == WallpaperTarget.LOCK || target == WallpaperTarget.BOTH)
+                    && !wallpaperRepository.isLockServiceActive()
+
+                when {
+                    homeNeeded -> _state.update {
+                        it.copy(
+                            isLoading = false,
+                            promptActivateServiceClass = "com.klvw.wallpaper.service.KLVWallpaperService",
+                            pendingPromptLock = lockNeeded
+                        )
+                    }
+                    lockNeeded -> _state.update {
+                        it.copy(
+                            isLoading = false,
+                            promptActivateServiceClass = "com.klvw.wallpaper.service.KLVWallpaperServiceLock",
+                            pendingPromptLock = false
+                        )
+                    }
+                    else -> _state.update {
+                        it.copy(isLoading = false, successMessage = "Wallpaper set!")
+                    }
+                }
+            } catch (e: Exception) {
+                _state.update { it.copy(isLoading = false, errorMessage = e.message ?: "Failed to set wallpaper") }
+            }
+        }
+    }
+
+    fun dismissLiveWallpaperPrompt() {
+        viewModelScope.launch {
+            val needsLock = _state.value.pendingPromptLock
+            _state.update { it.copy(promptActivateServiceClass = null, pendingPromptLock = false) }
+            if (needsLock && !wallpaperRepository.isLockServiceActive()) {
+                _state.update { it.copy(promptActivateServiceClass = "com.klvw.wallpaper.service.KLVWallpaperServiceLock") }
+            } else if (!needsLock) {
+                _state.update { it.copy(successMessage = "Wallpaper set!") }
+            }
+        }
+    }
+
+    fun addFolder(uri: Uri, type: FolderType) {
+        viewModelScope.launch {
+            folderRepository.addFolder(uri, type)
+            // combine collector handles loadPreviewItems when folders change
+        }
+    }
+
+    fun removeFolder(folder: FolderEntity) {
+        viewModelScope.launch { folderRepository.removeFolder(folder) }
+    }
+
+    fun addStaticImage(uri: Uri, displayName: String) {
+        viewModelScope.launch { staticImageRepository.add(uri, displayName) }
+    }
+
+    fun removeStaticImage(uri: Uri) {
+        viewModelScope.launch { staticImageRepository.remove(uri) }
+    }
+
+    fun clearMessage() {
+        _state.update { it.copy(successMessage = null, errorMessage = null) }
+    }
+
+    fun setUseVulkan(enabled: Boolean) {
+        viewModelScope.launch { prefs.setUseVulkan(enabled) }
+    }
+
+    fun setForceIconColor(value: String) {
+        viewModelScope.launch { prefs.setForceIconColor(value) }
+    }
+
+    fun setTileRandomImageTarget(v: String) { viewModelScope.launch { prefs.setTileRandomImageTarget(v) } }
+    fun setTileRandomVideoTarget(v: String) { viewModelScope.launch { prefs.setTileRandomVideoTarget(v) } }
+    fun setTileRestoreTarget(v: String) { viewModelScope.launch { prefs.setTileRestoreTarget(v) } }
+    fun setTileStaticImage(uri: String?, name: String) { viewModelScope.launch { prefs.setTileStaticImage(uri, name) } }
+    fun setTileStaticImageTarget(v: String) { viewModelScope.launch { prefs.setTileStaticImageTarget(v) } }
+
+    fun setDefaultFolder(target: String, mediaType: String, uri: String?) {
+        viewModelScope.launch { prefs.setDefaultFolderUri(target, mediaType, uri) }
+    }
+
+    private fun loadPreviewItems(clearFirst: Boolean = false) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (clearFirst) _state.update { it.copy(isLoadingPreview = true, previewItems = emptyList()) }
+            val s = _state.value
+            val items = when (s.mediaTab) {
+                MediaTab.STATIC -> s.staticImages
+                MediaTab.IMAGE -> {
+                    val folders = s.imageFolders
+                    if (s.selectedFolderUri == null) {
+                        folders.flatMap { folderRepository.getItemsFromFolder(it.uri, FolderType.IMAGE) }
+                    } else {
+                        folders.find { it.uri == s.selectedFolderUri }
+                            ?.let { folderRepository.getItemsFromFolder(it.uri, FolderType.IMAGE) }
+                            ?: emptyList()
+                    }
+                }
+                MediaTab.VIDEO -> {
+                    val folders = s.videoFolders
+                    if (s.selectedFolderUri == null) {
+                        folders.flatMap { folderRepository.getItemsFromFolder(it.uri, FolderType.VIDEO) }
+                    } else {
+                        folders.find { it.uri == s.selectedFolderUri }
+                            ?.let { folderRepository.getItemsFromFolder(it.uri, FolderType.VIDEO) }
+                            ?: emptyList()
+                    }
+                }
+            }
+            _state.update { it.copy(previewItems = items, isLoadingPreview = false) }
+        }
+    }
+}

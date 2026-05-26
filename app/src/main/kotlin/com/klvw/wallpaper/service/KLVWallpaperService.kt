@@ -1,0 +1,216 @@
+package com.klvw.wallpaper.service
+
+import android.app.WallpaperColors
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Color
+import android.media.MediaMetadataRetriever
+import android.net.Uri
+import android.service.wallpaper.WallpaperService
+import android.view.SurfaceHolder
+import com.klvw.wallpaper.data.prefs.SettingsPreferences
+import com.klvw.wallpaper.service.renderer.EGLImageRenderer
+import com.klvw.wallpaper.service.renderer.VideoRenderer
+import com.klvw.wallpaper.util.DisplayUtils
+import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import javax.inject.Inject
+
+@AndroidEntryPoint
+class KLVWallpaperService : WallpaperService() {
+
+    @Inject lateinit var prefs: SettingsPreferences
+    @Inject lateinit var displayUtils: DisplayUtils
+
+    override fun onCreateEngine(): Engine = KLVWallpaperEngine()
+
+    inner class KLVWallpaperEngine : Engine() {
+        private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+        private var collectorJob: Job? = null
+        private var colorJob: Job? = null
+        private var imageRenderer: EGLImageRenderer? = null
+        private var videoRenderer: VideoRenderer? = null
+        private var isVideo = false
+        private var forceIconColor: String = "auto"
+        private var computedWallpaperColors: WallpaperColors? = null
+
+        private val screenOffReceiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context, intent: Intent) {
+                if (intent.action == Intent.ACTION_SCREEN_OFF && isVideo) {
+                    videoRenderer?.pause()
+                }
+            }
+        }
+
+        // Samsung requires HINT_FROM_BITMAP (set only by fromBitmap()) to trust WallpaperColors.
+        // Pure white → maximum luminance → HINT_SUPPORTS_DARK_TEXT set → dark (black) icons.
+        // Pure black → zero luminance → HINT_SUPPORTS_DARK_TEXT clear → light (white) icons.
+        private val syntheticWhiteColors by lazy {
+            Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+                .also { it.eraseColor(Color.WHITE) }
+                .let { bmp -> WallpaperColors.fromBitmap(bmp).also { bmp.recycle() } }
+        }
+        private val syntheticBlackColors by lazy {
+            Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+                .also { it.eraseColor(Color.BLACK) }
+                .let { bmp -> WallpaperColors.fromBitmap(bmp).also { bmp.recycle() } }
+        }
+
+        override fun onSurfaceCreated(holder: SurfaceHolder) {
+            super.onSurfaceCreated(holder)
+            registerReceiver(screenOffReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF))
+            // Seed with persisted value so the very first onComputeColors() call is correct.
+            prefs.homeWallpaperIsLightCache.value?.let { isLight ->
+                computedWallpaperColors = if (isLight) syntheticWhiteColors else syntheticBlackColors
+            }
+            startCollecting(holder)
+            startColorCollecting()
+        }
+
+        private fun startColorCollecting() {
+            colorJob?.cancel()
+            colorJob = scope.launch {
+                prefs.forceIconColor.collect { color ->
+                    forceIconColor = color
+                    notifyColorsChanged()
+                }
+            }
+        }
+
+        // Analyzes the top 60% of the wallpaper image to pick dark or light icon colors.
+        // Always returns one of the synthetic fromBitmap() colors so Samsung respects the hint.
+        private fun loadColorsAsync(uri: Uri, isVideo: Boolean) {
+            scope.launch {
+                try {
+                    val result: Pair<Boolean, WallpaperColors>? = withContext(Dispatchers.IO) {
+                        val bitmap = if (isVideo) {
+                            MediaMetadataRetriever().use { r ->
+                                r.setDataSource(applicationContext, uri)
+                                r.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                            }
+                        } else {
+                            val opts = BitmapFactory.Options().apply { inSampleSize = 16 }
+                            applicationContext.contentResolver.openInputStream(uri)
+                                ?.use { BitmapFactory.decodeStream(it, null, opts) }
+                        }
+                        bitmap?.let { bmp ->
+                            try {
+                                val topH = (bmp.height * 0.6f).toInt().coerceAtLeast(1)
+                                val topBmp = Bitmap.createBitmap(bmp, 0, 0, bmp.width, topH)
+                                val light = isLightBitmap(topBmp)
+                                topBmp.recycle()
+                                light to (if (light) syntheticWhiteColors else syntheticBlackColors)
+                            } finally {
+                                bmp.recycle()
+                            }
+                        }
+                    }
+                    if (result != null) {
+                        val (isLight, colors) = result
+                        computedWallpaperColors = colors
+                        prefs.setHomeWallpaperIsLightCache(isLight)
+                    }
+                    if (forceIconColor == "auto") notifyColorsChanged()
+                } catch (_: Throwable) {}
+            }
+        }
+
+        private fun isLightBitmap(bitmap: Bitmap): Boolean {
+            val pixels = IntArray(bitmap.width * bitmap.height)
+            bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+            var totalLuminance = 0.0
+            for (px in pixels) {
+                val r = Color.red(px) / 255.0
+                val g = Color.green(px) / 255.0
+                val b = Color.blue(px) / 255.0
+                totalLuminance += 0.2126 * r + 0.7152 * g + 0.0722 * b
+            }
+            return totalLuminance / pixels.size >= 0.5
+        }
+
+        // Uses fromBitmap()-derived colors so HINT_FROM_BITMAP is always set.
+        // Samsung ignores manually-constructed WallpaperColors without this flag.
+        override fun onComputeColors(): WallpaperColors = when (forceIconColor) {
+            "dark"  -> syntheticWhiteColors
+            "light" -> syntheticBlackColors
+            else    -> computedWallpaperColors ?: syntheticBlackColors
+        }
+
+        private fun startCollecting(holder: SurfaceHolder) {
+            collectorJob?.cancel()
+            collectorJob = scope.launch {
+                prefs.homeWallpaperState.collect { (uri, isVid) ->
+                    try {
+                        release()
+                        if (uri == null) return@collect
+                        isVideo = isVid
+                        if (isVid) {
+                            videoRenderer = VideoRenderer(applicationContext)
+                            videoRenderer!!.load(Uri.parse(uri), holder)
+                        } else {
+                            imageRenderer = EGLImageRenderer(applicationContext, displayUtils)
+                            imageRenderer!!.load(Uri.parse(uri), holder)
+                        }
+                        loadColorsAsync(Uri.parse(uri), isVid)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (_: Throwable) {
+                        release()
+                    }
+                }
+            }
+        }
+
+        override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+            super.onSurfaceChanged(holder, format, width, height)
+            if (!isVideo) imageRenderer?.render(holder)
+        }
+
+        override fun onVisibilityChanged(visible: Boolean) {
+            super.onVisibilityChanged(visible)
+            if (isVideo) {
+                if (visible) videoRenderer?.resume() else videoRenderer?.pause()
+            }
+        }
+
+        override fun onSurfaceDestroyed(holder: SurfaceHolder) {
+            super.onSurfaceDestroyed(holder)
+            try { unregisterReceiver(screenOffReceiver) } catch (_: Exception) {}
+            collectorJob?.cancel()
+            collectorJob = null
+            colorJob?.cancel()
+            colorJob = null
+            videoRenderer?.detachSurface()
+            release()
+        }
+
+        override fun onDestroy() {
+            super.onDestroy()
+            try { unregisterReceiver(screenOffReceiver) } catch (_: Exception) {}
+            collectorJob?.cancel()
+            collectorJob = null
+            colorJob?.cancel()
+            colorJob = null
+            release()
+            scope.cancel()
+        }
+
+        private fun release() {
+            try { imageRenderer?.release() } catch (_: Throwable) {}
+            imageRenderer = null
+            try { videoRenderer?.release() } catch (_: Throwable) {}
+            videoRenderer = null
+            computedWallpaperColors = null
+        }
+    }
+}
