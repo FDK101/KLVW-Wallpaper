@@ -100,6 +100,7 @@ fun KLVWPopupScreen(
     val displayControlResetHomeTimer by viewModel.displayControlResetHomeTimer.collectAsStateWithLifecycle()
     val displayControlResetLockTimer by viewModel.displayControlResetLockTimer.collectAsStateWithLifecycle()
     val popupScaleDisplayControl by viewModel.popupScaleDisplayControl.collectAsStateWithLifecycle()
+    val pujieWatchFaces by viewModel.pujieWatchFaces.collectAsStateWithLifecycle()
 
     val cardBgColor = bgHex?.let { hexToComposeColor(it) } ?: themeSurface.copy(alpha = 0.95f)
     val primaryTextColor = primaryHex?.let { hexToComposeColor(it) } ?: themeOnSurface
@@ -111,8 +112,9 @@ fun KLVWPopupScreen(
     var showTimerDialog by remember { mutableStateOf(false) }
     var showFolderManagerDialog by remember { mutableStateOf(false) }
     var showDisplayControlDialog by remember { mutableStateOf(false) }
+    var showPujiePickerDialog by remember { mutableStateOf(false) }
 
-    val childActive = pendingFolderItem != null || pendingIconColorItem != null || showFileSelectDialog || showTimerDialog || showFolderManagerDialog || showDisplayControlDialog
+    val childActive = pendingFolderItem != null || pendingIconColorItem != null || showFileSelectDialog || showTimerDialog || showFolderManagerDialog || showDisplayControlDialog || showPujiePickerDialog
 
     // Everything lives inside one Box so no new Android Window is created —
     // all overlays share the activity's transparent theme/status bar.
@@ -175,6 +177,7 @@ fun KLVWPopupScreen(
                                 POPUP_ACTION_ICON_COLOR        -> pendingIconColorItem = item
                                 POPUP_ACTION_TIMER             -> showTimerDialog = true
                                 POPUP_ACTION_DISPLAY_CONTROL   -> showDisplayControlDialog = true
+                                POPUP_ACTION_PUJIE_WATCH_FACE  -> showPujiePickerDialog = true
                                 else -> scope.launch { viewModel.executeItem(item, context) }
                             }
                         }
@@ -372,6 +375,22 @@ fun KLVWPopupScreen(
                 onResetHomeTimer = { viewModel.setDisplayControlResetHomeTimer(it) },
                 onResetLockTimer = { viewModel.setDisplayControlResetLockTimer(it) },
                 onDismiss = { showDisplayControlDialog = false }
+            )
+        }
+
+        // ── Pujie Watch Face picker overlay ──────────────────────────────────────
+        if (showPujiePickerDialog) {
+            PujieWatchFacePickerOverlay(
+                presets = pujieWatchFaces,
+                cardBgColor = cardBgColor,
+                primaryTextColor = primaryTextColor,
+                secondaryTextColor = secondaryTextColor,
+                popupWidthFraction = popupWidthFraction,
+                onSelect = { preset ->
+                    viewModel.firePujiePreset(preset, context)
+                    showPujiePickerDialog = false
+                },
+                onDismiss = { showPujiePickerDialog = false }
             )
         }
     }
@@ -1195,6 +1214,60 @@ private fun DisplayControlOverlay(
     }
 }
 
+// ── Pujie Watch Face picker overlay ──────────────────────────────────────────
+
+@Composable
+private fun PujieWatchFacePickerOverlay(
+    presets: List<PujieWatchFacePreset>,
+    cardBgColor: Color,
+    primaryTextColor: Color,
+    secondaryTextColor: Color,
+    popupWidthFraction: Float,
+    onSelect: (PujieWatchFacePreset) -> Unit,
+    onDismiss: () -> Unit
+) {
+    PopupOverlay(onDismiss = onDismiss) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(popupWidthFraction)
+                .padding(horizontal = 8.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(cardBgColor)
+                .clickable(enabled = false, onClick = {})
+        ) {
+            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Pujie Watch Face", style = MaterialTheme.typography.titleMedium, color = primaryTextColor)
+                Spacer(Modifier.height(4.dp))
+                if (presets.isEmpty()) {
+                    Text(
+                        "No watch faces configured.\nAdd them in Settings → Pujie Watch Faces.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = secondaryTextColor
+                    )
+                } else {
+                    presets.forEach { preset ->
+                        TextButton(
+                            onClick = { onSelect(preset) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                preset.displayName,
+                                modifier = Modifier.fillMaxWidth(),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.align(Alignment.End)
+                ) { Text("Close", color = secondaryTextColor) }
+            }
+        }
+    }
+}
+
 private fun PopupItem.actionIcon(): ImageVector = when (actionType) {
     POPUP_ACTION_RANDOM_IMAGE  -> Icons.Default.Image
     POPUP_ACTION_RANDOM_VIDEO  -> Icons.Default.VideoLibrary
@@ -1206,6 +1279,7 @@ private fun PopupItem.actionIcon(): ImageVector = when (actionType) {
     POPUP_ACTION_TIMER             -> Icons.Default.Timer
     POPUP_ACTION_FOLDER_SELECT_ALL -> Icons.Default.FolderSpecial
     POPUP_ACTION_DISPLAY_CONTROL   -> Icons.Default.LockOpen
+    POPUP_ACTION_PUJIE_WATCH_FACE  -> Icons.Default.Watch
     else                           -> Icons.Default.Settings
 }
 
@@ -1222,6 +1296,7 @@ private fun PopupItem.subtitle(): String {
         POPUP_ACTION_TIMER             -> "Wallpaper Timers"
         POPUP_ACTION_FOLDER_SELECT_ALL -> "All Default Folders"
         POPUP_ACTION_DISPLAY_CONTROL   -> "Display Control"
+        POPUP_ACTION_PUJIE_WATCH_FACE  -> "Pujie Watch Faces"
         else                           -> ""
     }
 }

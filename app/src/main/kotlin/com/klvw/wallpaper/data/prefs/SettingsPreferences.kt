@@ -80,6 +80,8 @@ class SettingsPreferences @Inject constructor(
         val DISPLAY_CONTROL_RESET_HOME_TIMER = booleanPreferencesKey("display_control_reset_home_timer")
         val DISPLAY_CONTROL_RESET_LOCK_TIMER = booleanPreferencesKey("display_control_reset_lock_timer")
         val POPUP_SCALE_DISPLAY_CONTROL = booleanPreferencesKey("popup_scale_display_control")
+        // Pujie Watch Face presets
+        val PUJIE_WATCH_FACES_JSON = stringPreferencesKey("pujie_watch_faces_json")
         // Timers
         val HOME_IMAGE_TIMER_ENABLED = booleanPreferencesKey("home_image_timer_enabled")
         val HOME_IMAGE_TIMER_INTERVAL_MIN = intPreferencesKey("home_image_timer_interval_min")
@@ -150,6 +152,7 @@ class SettingsPreferences @Inject constructor(
     val lockImageTimerIntervalMin: Flow<Int> = context.dataStore.data.map { it[Keys.LOCK_IMAGE_TIMER_INTERVAL_MIN] ?: 60 }.distinctUntilChanged()
     val lockVideoTimerEnabled: Flow<Boolean> = context.dataStore.data.map { it[Keys.LOCK_VIDEO_TIMER_ENABLED] ?: false }.distinctUntilChanged()
     val lockVideoTimerIntervalMin: Flow<Int> = context.dataStore.data.map { it[Keys.LOCK_VIDEO_TIMER_INTERVAL_MIN] ?: 60 }.distinctUntilChanged()
+    val pujieWatchFacesJson: Flow<String> = context.dataStore.data.map { it[Keys.PUJIE_WATCH_FACES_JSON] ?: "[]" }.distinctUntilChanged()
 
     // Long-lived scope backed by the singleton's lifetime — safe because this is a @Singleton
     private val stateScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -407,6 +410,10 @@ class SettingsPreferences @Inject constructor(
                 "lock_video" -> it[Keys.LOCK_VIDEO_TIMER_INTERVAL_MIN] = minutes
             }
         }
+    }
+
+    suspend fun setPujieWatchFacesJson(json: String) {
+        context.dataStore.edit { it[Keys.PUJIE_WATCH_FACES_JSON] = json }
     }
 
     suspend fun setDefaultFolderUri(target: String, mediaType: String, uri: String?) {

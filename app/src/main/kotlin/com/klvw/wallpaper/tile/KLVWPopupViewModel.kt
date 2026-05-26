@@ -1,7 +1,9 @@
 package com.klvw.wallpaper.tile
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
+import android.os.Bundle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.klvw.wallpaper.data.db.FolderEntity
@@ -124,6 +126,34 @@ class KLVWPopupViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val lockVideoTimerIntervalMin: StateFlow<Int> = prefs.lockVideoTimerIntervalMin
         .stateIn(viewModelScope, SharingStarted.Eagerly, 60)
+
+    val pujieWatchFaces: StateFlow<List<PujieWatchFacePreset>> = prefs.pujieWatchFacesJson
+        .map { PujieWatchFacePreset.fromJsonArray(it) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    fun firePujiePreset(preset: PujieWatchFacePreset, context: Context) {
+        viewModelScope.launch {
+            if (!prefs.appEnabled.first()) return@launch
+            val bundle = Bundle().apply {
+                putString("presetName", preset.presetName)
+                putString("presetType", preset.presetType)
+            }
+            val intent = Intent("com.twofortyfouram.locale.intent.action.FIRE_SETTING").apply {
+                setClassName(
+                    "com.pujie.watchfaces",
+                    "com.joaomgcd.taskerpluginlibrary.action.BroadcastReceiverAction"
+                )
+                putExtra("com.twofortyfouram.locale.intent.extra.BUNDLE", bundle)
+            }
+            context.sendBroadcast(intent)
+        }
+    }
+
+    fun savePujieWatchFaces(presets: List<PujieWatchFacePreset>) {
+        viewModelScope.launch {
+            with(PujieWatchFacePreset) { prefs.setPujieWatchFacesJson(presets.toJsonString()) }
+        }
+    }
 
     fun setIconColor(color: String) {
         viewModelScope.launch { prefs.setForceIconColor(color) }

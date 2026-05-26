@@ -49,6 +49,38 @@ const val POPUP_ACTION_SELECT_FILE = "select_file"
 const val POPUP_ACTION_TIMER = "timer"
 const val POPUP_ACTION_FOLDER_SELECT_ALL = "folder_select_all"
 const val POPUP_ACTION_DISPLAY_CONTROL = "display_control"
+const val POPUP_ACTION_PUJIE_WATCH_FACE = "pujie_watch_face"
+
+data class PujieWatchFacePreset(
+    val id: String = UUID.randomUUID().toString(),
+    val displayName: String,
+    val presetName: String,
+    val presetType: String
+) {
+    fun toJson(): JSONObject = JSONObject().apply {
+        put("id", id)
+        put("displayName", displayName)
+        put("presetName", presetName)
+        put("presetType", presetType)
+    }
+
+    companion object {
+        fun fromJson(obj: JSONObject) = PujieWatchFacePreset(
+            id = obj.optString("id").ifBlank { UUID.randomUUID().toString() },
+            displayName = obj.optString("displayName"),
+            presetName = obj.optString("presetName"),
+            presetType = obj.optString("presetType")
+        )
+
+        fun fromJsonArray(json: String): List<PujieWatchFacePreset> = try {
+            val arr = JSONArray(json)
+            (0 until arr.length()).map { fromJson(arr.getJSONObject(it)) }
+        } catch (_: Exception) { emptyList() }
+
+        fun List<PujieWatchFacePreset>.toJsonString(): String =
+            JSONArray().also { arr -> forEach { arr.put(it.toJson()) } }.toString()
+    }
+}
 
 fun List<PopupItem>.toJsonString(): String =
     JSONArray().also { arr -> forEach { arr.put(it.toJson()) } }.toString()

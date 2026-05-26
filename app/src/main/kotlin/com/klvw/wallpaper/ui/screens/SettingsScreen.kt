@@ -1,9 +1,12 @@
 package com.klvw.wallpaper.ui.screens
 
-import android.content.Intent
+import android.app.Activity.RESULT_OK
 import android.app.WallpaperManager
+import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -28,6 +31,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.SingletonImageLoader
 import com.klvw.wallpaper.tile.KLVWPopupViewModel
 import com.klvw.wallpaper.tile.PopupItem
+import com.klvw.wallpaper.tile.PujieWatchFacePreset
+import com.klvw.wallpaper.tile.PujieWatchFacePreset.Companion.toJsonString
 import com.klvw.wallpaper.ui.theme.SurfaceGlass
 import com.klvw.wallpaper.ui.viewmodel.WallpaperViewModel
 
@@ -118,6 +123,10 @@ fun SettingsScreen(viewModel: WallpaperViewModel, popupViewModel: KLVWPopupViewM
 
         SettingsSection(title = "KLVW Quick Set Tile") {
             QuickSetTileSection(popupViewModel = popupViewModel)
+        }
+
+        SettingsSection(title = "Pujie Watch Faces") {
+            PujieWatchFaceSection(popupViewModel = popupViewModel)
         }
 
         SettingsSection(title = "KLVW Display Control") {
@@ -565,6 +574,104 @@ private fun OverlayPermissionRow() {
 
 private fun colorToHex(color: Color): String = "#%08X".format(color.toArgb())
 private fun hexToColor(hex: String): Color? = try { Color(android.graphics.Color.parseColor(hex)) } catch (_: Exception) { null }
+
+@Composable
+private fun PujieWatchFaceSection(popupViewModel: KLVWPopupViewModel) {
+    val context = LocalContext.current
+    val presets by popupViewModel.pujieWatchFaces.collectAsStateWithLifecycle()
+
+    val pujieInstalled = remember {
+        try { context.packageManager.getPackageInfo("com.pujie.watchfaces", 0); true }
+        catch (_: Exception) { false }
+    }
+
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK) {
+            val bundle = result.data?.getBundleExtra("com.twofortyfouram.locale.intent.extra.BUNDLE")
+            val presetName = bundle?.getString("presetName") ?: return@rememberLauncherForActivityResult
+            val presetType = bundle.getString("presetType") ?: ""
+            val blurb = result.data?.getStringExtra("com.twofortyfouram.locale.intent.extra.STRING_BLURB")
+                ?.takeIf { it.isNotBlank() } ?: presetName
+            val newPreset = PujieWatchFacePreset(displayName = blurb, presetName = presetName, presetType = presetType)
+            popupViewModel.savePujieWatchFaces(presets + newPreset)
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        if (!pujieInstalled) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Default.Warning, contentDescription = null,
+                    modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
+                Text(
+                    "Pujie Watch Faces app not found",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+        } else {
+            if (presets.isEmpty()) {
+                Text(
+                    "No watch faces added yet. Tap Add Watch Face to configure one.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                presets.forEachIndexed { index, preset ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Watch, contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            preset.displayName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(
+                            onClick = { popupViewModel.savePujieWatchFaces(presets.toMutableList().also { it.removeAt(index) }) },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = "Remove",
+                                tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+                HorizontalDivider(thickness = 0.5.dp, modifier = Modifier.padding(vertical = 2.dp))
+            }
+            OutlinedButton(
+                onClick = {
+                    launcher.launch(
+                        Intent("com.twofortyfouram.locale.intent.action.EDIT_SETTING").apply {
+                            setClassName("com.pujie.watchfaces",
+                                "com.pujie.wristwear.pujieblack.tasker.EditPresetActivity")
+                        }
+                    )
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Add Watch Face", style = MaterialTheme.typography.labelMedium)
+            }
+            Text(
+                "Add a 'Pujie Watch Face' item to the popup menu to access these faces from the popup.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
 
 @Composable
 private fun DisplayControlSection(popupViewModel: KLVWPopupViewModel) {
