@@ -23,8 +23,14 @@ class KLVWApplication : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
-        getSystemService(NotificationManager::class.java).createNotificationChannel(
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.createNotificationChannel(
             NotificationChannel("klvw_debug", "KLVW Debug", NotificationManager.IMPORTANCE_HIGH)
+        )
+        nm.createNotificationChannel(
+            NotificationChannel("timer_status", "Timer Status", NotificationManager.IMPORTANCE_LOW).apply {
+                description = "Shows running timer status on screen unlock"
+            }
         )
         // ACTION_USER_PRESENT is blocked for manifest receivers on Android 8+ — register dynamically.
         // The live wallpaper service keeps the process alive whenever the wallpaper is active.

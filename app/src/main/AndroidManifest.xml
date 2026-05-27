@@ -152,6 +152,25 @@
             </intent-filter>
         </receiver>
 
+        <!-- Timer notification action receiver — handles pause/reset from notification buttons. -->
+        <receiver
+            android:name=".tile.TimerActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.klvw.wallpaper.TIMER_NOTIFICATION_ACTION" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Timer action picker — shown when multiple timers are running and user picks one. -->
+        <activity
+            android:name=".tile.TimerActionPickerActivity"
+            android:exported="false"
+            android:theme="@style/Theme.KLVWWallpaper.PopupOverlay"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:showWhenLocked="true" />
+
         <!-- FileProvider for sharing Tasker task template files -->
         <provider
             android:name="androidx.core.content.FileProvider"

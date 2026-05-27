@@ -112,6 +112,8 @@ class KLVWPopupViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val displayControlResetLockTimer: StateFlow<Boolean> = prefs.displayControlResetLockTimer
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val timerUnlockNotification: StateFlow<Boolean> = prefs.timerUnlockNotification
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val homeImageTimerEnabled: StateFlow<Boolean> = prefs.homeImageTimerEnabled
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val homeImageTimerIntervalMin: StateFlow<Int> = prefs.homeImageTimerIntervalMin
@@ -191,6 +193,7 @@ class KLVWPopupViewModel @Inject constructor(
     fun setQuickSetHomeStaticUri(uri: String?) { viewModelScope.launch { prefs.setQuickSetHomeStaticUri(uri) } }
     fun setQuickSetLockStaticUri(uri: String?) { viewModelScope.launch { prefs.setQuickSetLockStaticUri(uri) } }
     fun setQuickSetWatchPresetId(id: String?) { viewModelScope.launch { prefs.setQuickSetWatchPresetId(id) } }
+    fun setTimerUnlockNotification(enabled: Boolean) { viewModelScope.launch { prefs.setTimerUnlockNotification(enabled) } }
     // Timer controls
     fun pauseTimer(key: String) = timerManager.pause(key)
     fun resumeTimer(key: String) = timerManager.resume(key)

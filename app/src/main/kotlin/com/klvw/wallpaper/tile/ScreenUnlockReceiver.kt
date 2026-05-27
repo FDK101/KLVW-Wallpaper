@@ -50,6 +50,10 @@ class ScreenUnlockReceiver : BroadcastReceiver() {
                 if (appliedLock && prefs.displayControlResetLockTimer.first()) {
                     resetTimersForScreen("lock", prefs, ep.timerManager())
                 }
+
+                if (prefs.timerUnlockNotification.first()) {
+                    showTimerNotificationIfNeeded(context, prefs, ep.timerManager())
+                }
             } finally {
                 pendingResult.finish()
             }
@@ -67,6 +71,30 @@ class ScreenUnlockReceiver : BroadcastReceiver() {
         val item = ep.folderRepository().getItemsFromFolder(folderUri, type).randomOrNull() ?: return false
         ep.wallpaperRepository().setWallpaper(item, target)
         return true
+    }
+
+    private suspend fun showTimerNotificationIfNeeded(
+        context: Context,
+        prefs: SettingsPreferences,
+        timerManager: WallpaperTimerManager
+    ) {
+        val allKeys = listOf("home_image", "home_video", "lock_image", "lock_video")
+        val enabledKeys = allKeys.filter { key ->
+            when (key) {
+                "home_image" -> prefs.homeImageTimerEnabled.first()
+                "home_video" -> prefs.homeVideoTimerEnabled.first()
+                "lock_image" -> prefs.lockImageTimerEnabled.first()
+                "lock_video" -> prefs.lockVideoTimerEnabled.first()
+                else -> false
+            }
+        }
+        if (enabledKeys.isEmpty()) return
+        TimerStatusNotificationHelper.show(
+            context,
+            enabledKeys,
+            timerManager.paused.value,
+            timerManager.nextFireTimes.value
+        )
     }
 
     private suspend fun resetTimersForScreen(

@@ -134,6 +134,10 @@ fun SettingsScreen(viewModel: WallpaperViewModel, popupViewModel: KLVWPopupViewM
             DisplayControlSection(popupViewModel = popupViewModel)
         }
 
+        SettingsSection(title = "Wallpaper Timers") {
+            TimerNotificationSection(popupViewModel = popupViewModel)
+        }
+
         SettingsSection(title = "Popup Appearance") {
             PopupAppearanceSection(popupViewModel = popupViewModel)
         }
@@ -989,6 +993,43 @@ private fun ColorPickerRow(
                 SliderRow("G", green) { green = it }
                 SliderRow("B", blue)  { blue  = it }
             }
+        }
+    }
+}
+
+@Composable
+private fun TimerNotificationSection(popupViewModel: KLVWPopupViewModel) {
+    val enabled by popupViewModel.timerUnlockNotification.collectAsStateWithLifecycle()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.Timer, contentDescription = null, modifier = Modifier.size(22.dp),
+                tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Timer status on unlock", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "Show a notification with remaining time when you unlock your screen. " +
+                    "Expand it to pause or reset individual timers.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = enabled,
+                onCheckedChange = { popupViewModel.setTimerUnlockNotification(it) },
+                modifier = Modifier.height(24.dp)
+            )
         }
     }
 }
