@@ -11,6 +11,7 @@ import com.klvw.wallpaper.data.model.FolderType
 import com.klvw.wallpaper.data.model.WallpaperItem
 import com.klvw.wallpaper.data.model.WallpaperTarget
 import com.klvw.wallpaper.data.prefs.SettingsPreferences
+import com.klvw.wallpaper.data.prefs.ShuffleHistoryManager
 import com.klvw.wallpaper.data.repository.FolderRepository
 import com.klvw.wallpaper.data.repository.StaticImageRepository
 import com.klvw.wallpaper.data.repository.WallpaperRepository
@@ -29,6 +30,7 @@ class TaskerActionFire : BroadcastReceiver() {
     @Inject lateinit var wallpaperRepository: WallpaperRepository
     @Inject lateinit var staticImageRepository: StaticImageRepository
     @Inject lateinit var prefs: SettingsPreferences
+    @Inject lateinit var shuffleHistoryManager: ShuffleHistoryManager
 
     private var ctx: Context? = null
     private var notifId = 1000
@@ -154,7 +156,9 @@ class TaskerActionFire : BroadcastReceiver() {
                 debugNotify("No match for \"$varValue\" — configured keys: ${mappings.map { "\"${it.first}\"" }}")
                 return null
             }
-            return folderRepository.getItemsFromFolder(folderUri, type).randomOrNull()
+            return shuffleHistoryManager.pickNext(
+                folderRepository.getItemsFromFolder(folderUri, type), folderUri, type
+            )
         }
 
         val folderUri = bundle.getString(TaskerBundle.BUNDLE_KEY_FOLDER_URI)?.trim() ?: ""
@@ -172,18 +176,22 @@ class TaskerActionFire : BroadcastReceiver() {
                         prefs.defaultHomeVideoFolderUri.first()
                 }
                 if (defaultUri != null) {
-                    folderRepository.getItemsFromFolder(defaultUri, type).randomOrNull()
+                    shuffleHistoryManager.pickNext(
+                        folderRepository.getItemsFromFolder(defaultUri, type), defaultUri, type
+                    )
                 } else {
                     debugNotify("No global default folder configured for ${type.name} / $targetStr — set one in KLVW → Folder Selector")
                     null
                 }
             }
             folderUri.isBlank() -> {
-                folderRepository.getFoldersByType(type).first()
+                val items = folderRepository.getFoldersByType(type).first()
                     .flatMap { folderRepository.getItemsFromFolder(it.uri, type) }
-                    .randomOrNull()
+                shuffleHistoryManager.pickNextFromPool(items, type)
             }
-            folderUri.startsWith("content://") -> folderRepository.getItemsFromFolder(folderUri, type).randomOrNull()
+            folderUri.startsWith("content://") -> shuffleHistoryManager.pickNext(
+                folderRepository.getItemsFromFolder(folderUri, type), folderUri, type
+            )
             else -> {
                 // Variable was substituted to a display name — resolve to URI first
                 val folder = folderRepository.findFolderByDisplayName(folderUri, type)
@@ -191,7 +199,9 @@ class TaskerActionFire : BroadcastReceiver() {
                     debugNotify("No folder found with name \"$folderUri\"")
                     null
                 } else {
-                    folderRepository.getItemsFromFolder(folder.uri, type).randomOrNull()
+                    shuffleHistoryManager.pickNext(
+                        folderRepository.getItemsFromFolder(folder.uri, type), folder.uri, type
+                    )
                 }
             }
         }

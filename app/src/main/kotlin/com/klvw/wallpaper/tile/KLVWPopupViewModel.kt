@@ -11,6 +11,7 @@ import com.klvw.wallpaper.data.model.FolderType
 import com.klvw.wallpaper.data.model.WallpaperItem
 import com.klvw.wallpaper.data.model.WallpaperTarget
 import com.klvw.wallpaper.data.prefs.SettingsPreferences
+import com.klvw.wallpaper.data.prefs.ShuffleHistoryManager
 import com.klvw.wallpaper.data.repository.FolderRepository
 import com.klvw.wallpaper.data.repository.StaticImageRepository
 import com.klvw.wallpaper.data.repository.WallpaperRepository
@@ -30,7 +31,8 @@ class KLVWPopupViewModel @Inject constructor(
     private val folderRepository: FolderRepository,
     private val wallpaperRepository: WallpaperRepository,
     private val staticImageRepository: StaticImageRepository,
-    private val timerManager: WallpaperTimerManager
+    private val timerManager: WallpaperTimerManager,
+    private val shuffleHistoryManager: ShuffleHistoryManager
 ) : ViewModel() {
 
     val popupItems: StateFlow<List<PopupItem>> = prefs.popupItemsJson
@@ -220,7 +222,9 @@ class KLVWPopupViewModel @Inject constructor(
                         else   -> prefs.defaultHomeImageFolderUri.first()
                     }
                 } ?: return
-                val wallpaperItem = folderRepository.getItemsFromFolder(folderUri, FolderType.IMAGE).randomOrNull() ?: return
+                val wallpaperItem = shuffleHistoryManager.pickNext(
+                    folderRepository.getItemsFromFolder(folderUri, FolderType.IMAGE), folderUri, FolderType.IMAGE
+                ) ?: return
                 wallpaperRepository.setWallpaper(wallpaperItem, target)
             }
             POPUP_ACTION_RANDOM_VIDEO -> {
@@ -230,7 +234,9 @@ class KLVWPopupViewModel @Inject constructor(
                         else   -> prefs.defaultHomeVideoFolderUri.first()
                     }
                 } ?: return
-                val wallpaperItem = folderRepository.getItemsFromFolder(folderUri, FolderType.VIDEO).randomOrNull() ?: return
+                val wallpaperItem = shuffleHistoryManager.pickNext(
+                    folderRepository.getItemsFromFolder(folderUri, FolderType.VIDEO), folderUri, FolderType.VIDEO
+                ) ?: return
                 wallpaperRepository.setWallpaper(wallpaperItem, target)
             }
             POPUP_ACTION_STATIC_IMAGE -> {

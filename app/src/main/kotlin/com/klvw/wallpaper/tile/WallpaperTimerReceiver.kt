@@ -6,6 +6,7 @@ import android.content.Intent
 import com.klvw.wallpaper.data.model.FolderType
 import com.klvw.wallpaper.data.model.WallpaperTarget
 import com.klvw.wallpaper.data.prefs.SettingsPreferences
+import com.klvw.wallpaper.data.prefs.ShuffleHistoryManager
 import com.klvw.wallpaper.data.repository.FolderRepository
 import com.klvw.wallpaper.data.repository.WallpaperRepository
 import dagger.hilt.EntryPoint
@@ -26,6 +27,7 @@ class WallpaperTimerReceiver : BroadcastReceiver() {
         fun wallpaperRepository(): WallpaperRepository
         fun folderRepository(): FolderRepository
         fun timerManager(): WallpaperTimerManager
+        fun shuffleHistoryManager(): ShuffleHistoryManager
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -49,13 +51,16 @@ class WallpaperTimerReceiver : BroadcastReceiver() {
                     val (type, target) = keyToTypeTarget(key)
                     val uri = defaultFolderUri(ep.prefs(), type, target)
                     if (uri != null) {
-                        val item = ep.folderRepository().getItemsFromFolder(uri, type).randomOrNull()
+                        val allItems = ep.folderRepository().getItemsFromFolder(uri, type)
+                    val item = ep.shuffleHistoryManager().pickNext(allItems, uri, type)
                         if (item != null) ep.wallpaperRepository().setWallpaper(item, target)
                     }
                 }
                 // Reschedule next firing — launchTimer's collectLatest will cancel it if disabled/paused
                 val intervalMin = intervalForKey(ep.prefs(), key)
                 timerManager.scheduleAlarm(key, intervalMin)
+                // Refresh the notification so the countdown resets to the new fire time
+                TimerStatusNotificationHelper.refreshIfVisible(context, ep.prefs(), timerManager)
             } finally {
                 pendingResult.finish()
             }

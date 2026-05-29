@@ -10,6 +10,7 @@ import android.provider.MediaStore
 import android.widget.Toast
 import com.klvw.wallpaper.data.model.FolderType
 import com.klvw.wallpaper.data.model.WallpaperTarget
+import com.klvw.wallpaper.data.prefs.ShuffleHistoryManager
 import com.klvw.wallpaper.data.repository.FolderRepository
 import com.klvw.wallpaper.data.repository.WallpaperRepository
 import dagger.hilt.android.AndroidEntryPoint
@@ -25,6 +26,7 @@ class WallpaperIntentReceiver : BroadcastReceiver() {
 
     @Inject lateinit var folderRepository: FolderRepository
     @Inject lateinit var wallpaperRepository: WallpaperRepository
+    @Inject lateinit var shuffleHistoryManager: ShuffleHistoryManager
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != ACTION) return
@@ -41,12 +43,15 @@ class WallpaperIntentReceiver : BroadcastReceiver() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val item = if (folderName.isNullOrBlank()) {
-                    folderRepository.getFoldersByType(type).first()
+                    val items = folderRepository.getFoldersByType(type).first()
                         .flatMap { folderRepository.getItemsFromFolder(it.uri, type) }
-                        .randomOrNull()
+                    shuffleHistoryManager.pickNextFromPool(items, type)
                 } else {
-                    folderRepository.findFolderByDisplayName(folderName, type)
-                        ?.let { folderRepository.getItemsFromFolder(it.uri, type).randomOrNull() }
+                    folderRepository.findFolderByDisplayName(folderName, type)?.let { folder ->
+                        shuffleHistoryManager.pickNext(
+                            folderRepository.getItemsFromFolder(folder.uri, type), folder.uri, type
+                        )
+                    }
                 }
                 item?.let { wallpaperRepository.setWallpaper(it, target) }
             } finally {

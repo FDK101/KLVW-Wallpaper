@@ -9,6 +9,7 @@ import com.klvw.wallpaper.data.model.FolderType
 import com.klvw.wallpaper.data.model.WallpaperItem
 import com.klvw.wallpaper.data.model.WallpaperTarget
 import com.klvw.wallpaper.data.prefs.SettingsPreferences
+import com.klvw.wallpaper.data.prefs.ShuffleHistoryManager
 import com.klvw.wallpaper.data.repository.FolderRepository
 import com.klvw.wallpaper.data.repository.WallpaperRepository
 import dagger.hilt.android.AndroidEntryPoint
@@ -22,6 +23,7 @@ class KLVWQuickSetActivity : ComponentActivity() {
     @Inject lateinit var prefs: SettingsPreferences
     @Inject lateinit var wallpaperRepository: WallpaperRepository
     @Inject lateinit var folderRepository: FolderRepository
+    @Inject lateinit var shuffleHistoryManager: ShuffleHistoryManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -44,12 +46,16 @@ class KLVWQuickSetActivity : ComponentActivity() {
         when (action) {
             "random_image" -> {
                 val uri = resolveDefaultFolderUri(FolderType.IMAGE, target) ?: return
-                val item = folderRepository.getItemsFromFolder(uri, FolderType.IMAGE).randomOrNull() ?: return
+                val item = shuffleHistoryManager.pickNext(
+                    folderRepository.getItemsFromFolder(uri, FolderType.IMAGE), uri, FolderType.IMAGE
+                ) ?: return
                 wallpaperRepository.setWallpaper(item, target)
             }
             "random_video" -> {
                 val uri = resolveDefaultFolderUri(FolderType.VIDEO, target) ?: return
-                val item = folderRepository.getItemsFromFolder(uri, FolderType.VIDEO).randomOrNull() ?: return
+                val item = shuffleHistoryManager.pickNext(
+                    folderRepository.getItemsFromFolder(uri, FolderType.VIDEO), uri, FolderType.VIDEO
+                ) ?: return
                 wallpaperRepository.setWallpaper(item, target)
             }
             "static_image" -> {

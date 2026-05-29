@@ -10,6 +10,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import com.klvw.wallpaper.data.prefs.SettingsPreferences
+import com.klvw.wallpaper.data.prefs.ShuffleHistoryManager
+import com.klvw.wallpaper.data.repository.FolderRepository
+import com.klvw.wallpaper.data.repository.WallpaperRepository
 import com.klvw.wallpaper.ui.theme.KLVWTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
@@ -20,6 +23,9 @@ class TimerActionPickerActivity : ComponentActivity() {
 
     @Inject lateinit var timerManager: WallpaperTimerManager
     @Inject lateinit var prefs: SettingsPreferences
+    @Inject lateinit var folderRepository: FolderRepository
+    @Inject lateinit var wallpaperRepository: WallpaperRepository
+    @Inject lateinit var shuffleHistoryManager: ShuffleHistoryManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -30,7 +36,9 @@ class TimerActionPickerActivity : ComponentActivity() {
             ?: run { finish(); return }
 
         val title = when (action) {
-            TimerStatusNotificationHelper.VALUE_PAUSE -> "Pause Timer"
+            TimerStatusNotificationHelper.VALUE_PAUSE      -> "Pause Timer"
+            TimerStatusNotificationHelper.VALUE_RESUME     -> "Resume Timer"
+            TimerStatusNotificationHelper.VALUE_CHANGE_NOW -> "Change Wallpaper Now"
             else -> "Reset Timer"
         }
 
@@ -41,7 +49,16 @@ class TimerActionPickerActivity : ComponentActivity() {
                     keys = keys,
                     onSelect = { key ->
                         lifecycleScope.launch {
-                            TimerActionReceiver.applyAction(action, key, timerManager, prefs)
+                            if (action == TimerStatusNotificationHelper.VALUE_CHANGE_NOW) {
+                                TimerActionReceiver.applyChangeNow(
+                                    key, prefs, folderRepository, wallpaperRepository, shuffleHistoryManager
+                                )
+                            } else {
+                                TimerActionReceiver.applyAction(action, key, timerManager, prefs)
+                            }
+                            TimerStatusNotificationHelper.showFromState(
+                                applicationContext, prefs, timerManager
+                            )
                             finish()
                         }
                     },

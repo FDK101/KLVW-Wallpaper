@@ -6,6 +6,7 @@ import android.content.Intent
 import com.klvw.wallpaper.data.model.FolderType
 import com.klvw.wallpaper.data.model.WallpaperTarget
 import com.klvw.wallpaper.data.prefs.SettingsPreferences
+import com.klvw.wallpaper.data.prefs.ShuffleHistoryManager
 import com.klvw.wallpaper.data.repository.FolderRepository
 import com.klvw.wallpaper.data.repository.WallpaperRepository
 import dagger.hilt.EntryPoint
@@ -26,6 +27,7 @@ class ScreenUnlockReceiver : BroadcastReceiver() {
         fun wallpaperRepository(): WallpaperRepository
         fun folderRepository(): FolderRepository
         fun timerManager(): WallpaperTimerManager
+        fun shuffleHistoryManager(): ShuffleHistoryManager
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -68,7 +70,8 @@ class ScreenUnlockReceiver : BroadcastReceiver() {
         ep: UnlockEntryPoint
     ): Boolean {
         if (!enabled || folderUri == null) return false
-        val item = ep.folderRepository().getItemsFromFolder(folderUri, type).randomOrNull() ?: return false
+        val allItems = ep.folderRepository().getItemsFromFolder(folderUri, type)
+        val item = ep.shuffleHistoryManager().pickNext(allItems, folderUri, type) ?: return false
         ep.wallpaperRepository().setWallpaper(item, target)
         return true
     }
