@@ -1,5 +1,6 @@
 package com.klvw.wallpaper.tile
 
+import android.app.NotificationManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -39,7 +40,10 @@ class KLVWQuickSetActivity : ComponentActivity() {
                     prefs.setAppEnabled(false)
                     // Pause all running timers if the user opted in to that behaviour
                     if (prefs.pauseTimersOnGlobalOff.first()) {
-                        pauseAllEnabledTimers()
+                        val pausedByGlobalOff = pauseAllEnabledTimers()
+                        prefs.setGlobalOffPausedTimers(pausedByGlobalOff.toSet())
+                        getSystemService(NotificationManager::class.java)
+                            ?.cancel(TimerStatusNotificationHelper.NOTIFICATION_ID)
                     }
                 }
             }
@@ -97,8 +101,8 @@ class KLVWQuickSetActivity : ComponentActivity() {
         startForegroundService(intent)
     }
 
-    private suspend fun pauseAllEnabledTimers() {
-        listOf("home_image", "home_video", "lock_image", "lock_video")
+    private suspend fun pauseAllEnabledTimers(): List<String> {
+        val keys = listOf("home_image", "home_video", "lock_image", "lock_video")
             .filter { key ->
                 when (key) {
                     "home_image" -> prefs.homeImageTimerEnabled.first()
@@ -109,7 +113,8 @@ class KLVWQuickSetActivity : ComponentActivity() {
                 }
             }
             .filter { key -> timerManager.paused.value[key] != true }
-            .forEach { key -> timerManager.pause(key) }
+        keys.forEach { key -> timerManager.pause(key) }
+        return keys
     }
 
     private suspend fun resolveDefaultFolderUri(type: FolderType, target: WallpaperTarget): String? = when {

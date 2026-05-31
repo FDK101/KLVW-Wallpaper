@@ -35,6 +35,7 @@ class KLVWQuickSetConfirmActivity : ComponentActivity() {
 
     @Inject lateinit var prefs: SettingsPreferences
     @Inject lateinit var wallpaperRepository: WallpaperRepository
+    @Inject lateinit var timerManager: WallpaperTimerManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -104,6 +105,7 @@ class KLVWQuickSetConfirmActivity : ComponentActivity() {
                                         scope.launch {
                                             prefs.setAppEnabled(true)
                                             restorePreviousWallpapers()
+                                            restoreTimers()
                                             finish()
                                         }
                                     },
@@ -136,6 +138,14 @@ class KLVWQuickSetConfirmActivity : ComponentActivity() {
                 WallpaperTarget.LOCK
             )
         }
+    }
+
+    private suspend fun restoreTimers() {
+        val keys = prefs.globalOffPausedTimers.first()
+        if (keys.isEmpty()) return
+        keys.forEach { key -> timerManager.resume(key) }
+        prefs.setGlobalOffPausedTimers(emptySet())
+        TimerStatusNotificationHelper.showFromState(applicationContext, prefs, timerManager)
     }
 
     private fun tryParseColor(hex: String): Color? = try {
