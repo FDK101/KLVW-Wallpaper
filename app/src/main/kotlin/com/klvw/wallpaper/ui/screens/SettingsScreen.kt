@@ -136,6 +136,7 @@ fun SettingsScreen(viewModel: WallpaperViewModel, popupViewModel: KLVWPopupViewM
 
         SettingsSection(title = "Wallpaper Timers") {
             TimerNotificationSection(popupViewModel = popupViewModel)
+            TimerGlobalOffSection(popupViewModel = popupViewModel)
         }
 
         SettingsSection(title = "Popup Appearance") {
@@ -1028,6 +1029,43 @@ private fun TimerNotificationSection(popupViewModel: KLVWPopupViewModel) {
             Switch(
                 checked = enabled,
                 onCheckedChange = { popupViewModel.setTimerUnlockNotification(it) },
+                modifier = Modifier.height(24.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun TimerGlobalOffSection(popupViewModel: KLVWPopupViewModel) {
+    val pauseOnGlobalOff by popupViewModel.pauseTimersOnGlobalOff.collectAsStateWithLifecycle()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.PauseCircle, contentDescription = null, modifier = Modifier.size(22.dp),
+                tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Pause timers on Global Off", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "When you press the Global Off QS button, all running timers are paused " +
+                    "automatically. Resume them from the timer notification.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = pauseOnGlobalOff,
+                onCheckedChange = { popupViewModel.setPauseTimersOnGlobalOff(it) },
                 modifier = Modifier.height(24.dp)
             )
         }

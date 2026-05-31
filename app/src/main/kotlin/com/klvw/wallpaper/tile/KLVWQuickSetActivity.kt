@@ -24,6 +24,7 @@ class KLVWQuickSetActivity : ComponentActivity() {
     @Inject lateinit var wallpaperRepository: WallpaperRepository
     @Inject lateinit var folderRepository: FolderRepository
     @Inject lateinit var shuffleHistoryManager: ShuffleHistoryManager
+    @Inject lateinit var timerManager: WallpaperTimerManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,6 +37,10 @@ class KLVWQuickSetActivity : ComponentActivity() {
                 applyWatchAction()
                 if (homeAction == "static_image" && lockAction == "static_image") {
                     prefs.setAppEnabled(false)
+                    // Pause all running timers if the user opted in to that behaviour
+                    if (prefs.pauseTimersOnGlobalOff.first()) {
+                        pauseAllEnabledTimers()
+                    }
                 }
             }
             finish()
@@ -90,6 +95,21 @@ class KLVWQuickSetActivity : ComponentActivity() {
             putExtra("com.twofortyfouram.locale.intent.extra.BUNDLE", bundle)
         }
         startForegroundService(intent)
+    }
+
+    private suspend fun pauseAllEnabledTimers() {
+        listOf("home_image", "home_video", "lock_image", "lock_video")
+            .filter { key ->
+                when (key) {
+                    "home_image" -> prefs.homeImageTimerEnabled.first()
+                    "home_video" -> prefs.homeVideoTimerEnabled.first()
+                    "lock_image" -> prefs.lockImageTimerEnabled.first()
+                    "lock_video" -> prefs.lockVideoTimerEnabled.first()
+                    else -> false
+                }
+            }
+            .filter { key -> timerManager.paused.value[key] != true }
+            .forEach { key -> timerManager.pause(key) }
     }
 
     private suspend fun resolveDefaultFolderUri(type: FolderType, target: WallpaperTarget): String? = when {

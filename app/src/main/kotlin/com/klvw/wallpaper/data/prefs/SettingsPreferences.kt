@@ -85,6 +85,7 @@ class SettingsPreferences @Inject constructor(
         val PUJIE_WATCH_FACES_JSON = stringPreferencesKey("pujie_watch_faces_json")
         // Timers
         val TIMER_UNLOCK_NOTIFICATION = booleanPreferencesKey("timer_unlock_notification")
+        val PAUSE_TIMERS_ON_GLOBAL_OFF = booleanPreferencesKey("pause_timers_on_global_off")
         val HOME_IMAGE_TIMER_ENABLED = booleanPreferencesKey("home_image_timer_enabled")
         val HOME_IMAGE_TIMER_INTERVAL_MIN = intPreferencesKey("home_image_timer_interval_min")
         val HOME_VIDEO_TIMER_ENABLED = booleanPreferencesKey("home_video_timer_enabled")
@@ -148,6 +149,7 @@ class SettingsPreferences @Inject constructor(
     val quickSetLockStaticUri: Flow<String?> = context.dataStore.data.map { it[Keys.QUICK_SET_LOCK_STATIC_URI] }.distinctUntilChanged()
     val quickSetWatchPresetId: Flow<String?> = context.dataStore.data.map { it[Keys.QUICK_SET_WATCH_PRESET_ID] }.distinctUntilChanged()
     val timerUnlockNotification: Flow<Boolean> = context.dataStore.data.map { it[Keys.TIMER_UNLOCK_NOTIFICATION] ?: false }.distinctUntilChanged()
+    val pauseTimersOnGlobalOff: Flow<Boolean> = context.dataStore.data.map { it[Keys.PAUSE_TIMERS_ON_GLOBAL_OFF] ?: false }.distinctUntilChanged()
     val homeImageTimerEnabled: Flow<Boolean> = context.dataStore.data.map { it[Keys.HOME_IMAGE_TIMER_ENABLED] ?: false }.distinctUntilChanged()
     val homeImageTimerIntervalMin: Flow<Int> = context.dataStore.data.map { it[Keys.HOME_IMAGE_TIMER_INTERVAL_MIN] ?: 60 }.distinctUntilChanged()
     val homeVideoTimerEnabled: Flow<Boolean> = context.dataStore.data.map { it[Keys.HOME_VIDEO_TIMER_ENABLED] ?: false }.distinctUntilChanged()
@@ -403,6 +405,10 @@ class SettingsPreferences @Inject constructor(
 
     suspend fun setTimerUnlockNotification(enabled: Boolean) {
         context.dataStore.edit { it[Keys.TIMER_UNLOCK_NOTIFICATION] = enabled }
+    }
+
+    suspend fun setPauseTimersOnGlobalOff(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.PAUSE_TIMERS_ON_GLOBAL_OFF] = enabled }
     }
 
     suspend fun setTimerEnabled(key: String, enabled: Boolean) {
