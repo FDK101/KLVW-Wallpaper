@@ -14,6 +14,7 @@ import com.klvw.wallpaper.data.repository.FolderRepository
 import com.klvw.wallpaper.data.repository.WallpaperRepository
 import com.klvw.wallpaper.tile.TimerStatusNotificationHelper
 import com.klvw.wallpaper.tile.WallpaperTimerManager
+import com.google.android.gms.wearable.Wearable
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -24,9 +25,12 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import org.json.JSONObject
 
-private const val PATH_EXECUTE = "/klvw/execute"
+private const val PATH_CONFIG_REQUEST  = "/klvw/config/request"
+private const val PATH_CONFIG_RESPONSE = "/klvw/config/response"
+private const val PATH_EXECUTE         = "/klvw/execute"
 private const val TAG = "KLVWWearListener"
 
 class KLVWWearListenerService : WearableListenerService() {
@@ -60,7 +64,24 @@ class KLVWWearListenerService : WearableListenerService() {
 
     override fun onMessageReceived(event: MessageEvent) {
         Log.d(TAG, "onMessageReceived: ${event.path}")
-        if (event.path == PATH_EXECUTE) handleExecute(event.data)
+        when (event.path) {
+            PATH_CONFIG_REQUEST -> handleConfigRequest(event.sourceNodeId)
+            PATH_EXECUTE        -> handleExecute(event.data)
+        }
+    }
+
+    private fun handleConfigRequest(sourceNodeId: String) {
+        scope.launch {
+            try {
+                val json = prefs.klvwWatchItemsJson.first()
+                Wearable.getMessageClient(applicationContext)
+                    .sendMessage(sourceNodeId, PATH_CONFIG_RESPONSE, json.toByteArray(Charsets.UTF_8))
+                    .await()
+                Log.d(TAG, "Config sent from service (${json.length} bytes)")
+            } catch (e: Exception) {
+                Log.e(TAG, "Config request handling failed", e)
+            }
+        }
     }
 
     private fun handleExecute(data: ByteArray) {

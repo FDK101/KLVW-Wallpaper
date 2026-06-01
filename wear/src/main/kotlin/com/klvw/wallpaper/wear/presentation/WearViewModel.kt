@@ -5,8 +5,10 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.google.android.gms.wearable.CapabilityClient
 import com.google.android.gms.wearable.DataMapItem
 import com.google.android.gms.wearable.MessageClient
+import com.google.android.gms.wearable.Node
 import com.google.android.gms.wearable.Wearable
 import com.klvw.wallpaper.wear.comms.WatchPopupItem
 import com.klvw.wallpaper.wear.comms.WatchPopupItem.Companion.listFromJson
@@ -47,10 +49,10 @@ class WearViewModel(private val appContext: Context) : ViewModel() {
                     return@launch
                 }
 
-                // 2. DataClient empty — use in-process MessageClient listener.
-                //    The phone's KLVWApplication has a permanent listener that responds instantly.
-                val nodes = Wearable.getNodeClient(appContext).connectedNodes.await()
-                val phone = nodes.firstOrNull()
+                // 2. DataClient empty — find the phone node and request config via MessageClient.
+                //    CapabilityClient finds nodes that have the klvw_phone capability declared,
+                //    which tells GMS/Samsung which phone app is paired with this watch app.
+                val phone = findPhoneNode()
                 if (phone == null) {
                     _state.value = WearUiState.NoPhone
                     return@launch
@@ -89,8 +91,7 @@ class WearViewModel(private val appContext: Context) : ViewModel() {
         viewModelScope.launch {
             _state.value = currentReady.copy(executingId = item.id, successId = null)
             try {
-                val nodes = Wearable.getNodeClient(appContext).connectedNodes.await()
-                val phone = nodes.firstOrNull()
+                val phone = findPhoneNode()
                 if (phone == null) {
                     _state.value = WearUiState.NoPhone
                     return@launch
@@ -111,6 +112,23 @@ class WearViewModel(private val appContext: Context) : ViewModel() {
     }
 
     fun retry() = loadConfig()
+
+    private suspend fun findPhoneNode(): Node? {
+        // CapabilityClient finds nodes that declared the klvw_phone capability in wear.xml.
+        // This is how GMS/Samsung's companion routing identifies paired phone apps.
+        // Fall back to any connected node if capability isn't synced yet (first install).
+        return try {
+            val cap = Wearable.getCapabilityClient(appContext)
+                .getCapability("klvw_phone", CapabilityClient.FILTER_REACHABLE)
+                .await()
+            cap.nodes.firstOrNull { it.isNearby } ?: cap.nodes.firstOrNull()
+        } catch (_: Exception) {
+            null
+        } ?: run {
+            val nodes = Wearable.getNodeClient(appContext).connectedNodes.await()
+            nodes.firstOrNull()
+        }
+    }
 
     private suspend fun readFromDataClient(): String? = try {
         val dataItems = Wearable.getDataClient(appContext)
