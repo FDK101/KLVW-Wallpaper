@@ -1,19 +1,28 @@
 package com.klvw.wallpaper
 
 import android.app.Application
-import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.NotificationChannel
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.net.Uri
 import android.os.PowerManager
+import android.util.Log
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
 import coil3.video.VideoFrameDecoder
+import com.google.android.gms.wearable.Wearable
+import com.klvw.wallpaper.data.model.FolderType
+import com.klvw.wallpaper.data.model.WallpaperItem
+import com.klvw.wallpaper.data.model.WallpaperTarget
 import com.klvw.wallpaper.data.prefs.SettingsPreferences
+import com.klvw.wallpaper.data.prefs.ShuffleHistoryManager
+import com.klvw.wallpaper.data.repository.FolderRepository
+import com.klvw.wallpaper.data.repository.WallpaperRepository
 import com.klvw.wallpaper.tile.ScreenUnlockReceiver
 import com.klvw.wallpaper.tile.TimerStatusNotificationHelper
 import com.klvw.wallpaper.tile.WallpaperTimerManager
@@ -26,17 +35,28 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import okio.Path.Companion.toOkioPath
+import org.json.JSONObject
 import javax.inject.Inject
+
+private const val TAG = "KLVWApp"
+private const val PATH_CONFIG_REQUEST  = "/klvw/config/request"
+private const val PATH_CONFIG_RESPONSE = "/klvw/config/response"
+private const val PATH_EXECUTE         = "/klvw/execute"
 
 @HiltAndroidApp
 class KLVWApplication : Application(), SingletonImageLoader.Factory {
 
     @Inject lateinit var timerManager: WallpaperTimerManager
     @Inject lateinit var prefs: SettingsPreferences
+    @Inject lateinit var wallpaperRepository: WallpaperRepository
+    @Inject lateinit var folderRepository: FolderRepository
+    @Inject lateinit var shuffleHistoryManager: ShuffleHistoryManager
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -51,12 +71,8 @@ class KLVWApplication : Application(), SingletonImageLoader.Factory {
                 description = "Shows running timer status on screen unlock"
             }
         )
-        // ACTION_USER_PRESENT is blocked for manifest receivers on Android 8+ — register dynamically.
         registerReceiver(ScreenUnlockReceiver(), IntentFilter(Intent.ACTION_USER_PRESENT))
 
-        // Track screen state so the notification observer only runs while the screen is on.
-        // When the screen is off the user cannot see the notification, and a 1-second ticker
-        // running in the dark is one of the main causes of Doze-mode suppression / battery drain.
         val powerManager = getSystemService(PowerManager::class.java)
         val screenOn = MutableStateFlow(powerManager?.isInteractive == true)
         registerReceiver(object : BroadcastReceiver() {
@@ -68,23 +84,39 @@ class KLVWApplication : Application(), SingletonImageLoader.Factory {
             addAction(Intent.ACTION_SCREEN_OFF)
         })
 
-        // Real-time timer notification observer.
-        //
-        // enabledKeysFlow is derived from prefs and only re-emits when timer settings change
-        // (rare), so there are no DataStore reads in the 1-second hot path.
-        //
-        // flatMapLatest on screenOn:
-        //   screen OFF → switches to emptyFlow(), cancels the ticker entirely → Doze can engage
-        //   screen ON  → restarts the combine+ticker, notification refreshes within 1 s
-        //
-        // State-flow changes (pause / resume / reset / timer fire) wake the collector immediately
-        // without waiting for the next tick.
-        // Push watch config to DataClient on start and on every change so the watch can
-        // read it directly without needing MessageClient round-trips.
+        // Push watch config to DataClient whenever it changes (background cache for future opens).
         appScope.launch {
             prefs.klvwWatchItemsJson.collect { json ->
                 WatchConfigSync.sync(applicationContext, json)
             }
+        }
+
+        // In-process MessageClient listener — works because the live wallpaper service keeps
+        // this process alive permanently. No GMS service wakeup required; messages are delivered
+        // directly to the running process, bypassing the WearableListenerService entirely.
+        try {
+            Wearable.getMessageClient(this).addListener { event ->
+                when (event.path) {
+                    PATH_CONFIG_REQUEST -> appScope.launch {
+                        try {
+                            val json = prefs.klvwWatchItemsJson.first()
+                            Wearable.getMessageClient(applicationContext)
+                                .sendMessage(event.sourceNodeId, PATH_CONFIG_RESPONSE,
+                                    json.toByteArray(Charsets.UTF_8))
+                                .await()
+                            Log.d(TAG, "Config sent to watch (${json.length} bytes)")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Config response failed", e)
+                        }
+                    }
+                    PATH_EXECUTE -> appScope.launch {
+                        handleWatchExecute(event.data)
+                    }
+                }
+            }
+            Log.d(TAG, "Watch message listener registered")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to register watch listener", e)
         }
 
         appScope.launch {
@@ -125,6 +157,92 @@ class KLVWApplication : Application(), SingletonImageLoader.Factory {
                     }) return@collect
                 TimerStatusNotificationHelper.show(applicationContext, enabled, paused, fires)
             }
+        }
+    }
+
+    private suspend fun handleWatchExecute(data: ByteArray) {
+        try {
+            val obj        = JSONObject(String(data, Charsets.UTF_8))
+            val actionType = obj.optString("actionType")
+            val target     = obj.optString("target", "home")
+            val folderUri  = obj.optString("folderUri", "")
+
+            val wallpaperTarget = when (target) {
+                "lock" -> WallpaperTarget.LOCK
+                "both" -> WallpaperTarget.BOTH
+                else   -> WallpaperTarget.HOME
+            }
+
+            when (actionType) {
+                "random_image" -> {
+                    val uri = folderUri.ifBlank {
+                        when (target) {
+                            "lock" -> prefs.defaultLockImageFolderUri.first()
+                            else   -> prefs.defaultHomeImageFolderUri.first()
+                        }
+                    } ?: return
+                    val item = shuffleHistoryManager.pickNext(
+                        folderRepository.getItemsFromFolder(uri, FolderType.IMAGE),
+                        uri, FolderType.IMAGE
+                    ) ?: return
+                    wallpaperRepository.setWallpaper(item, wallpaperTarget)
+                }
+                "random_video" -> {
+                    val uri = folderUri.ifBlank {
+                        when (target) {
+                            "lock" -> prefs.defaultLockVideoFolderUri.first()
+                            else   -> prefs.defaultHomeVideoFolderUri.first()
+                        }
+                    } ?: return
+                    val item = shuffleHistoryManager.pickNext(
+                        folderRepository.getItemsFromFolder(uri, FolderType.VIDEO),
+                        uri, FolderType.VIDEO
+                    ) ?: return
+                    wallpaperRepository.setWallpaper(item, wallpaperTarget)
+                }
+                "restore" -> {
+                    prefs.prevHomeWallpaperUri.first()?.let { uri ->
+                        val vid = prefs.prevHomeIsVideo.first()
+                        wallpaperRepository.setWallpaper(
+                            WallpaperItem(Uri.parse(uri),
+                                if (vid) FolderType.VIDEO else FolderType.IMAGE, "", ""),
+                            WallpaperTarget.HOME
+                        )
+                    }
+                    prefs.prevLockWallpaperUri.first()?.let { uri ->
+                        val vid = prefs.prevLockIsVideo.first()
+                        wallpaperRepository.setWallpaper(
+                            WallpaperItem(Uri.parse(uri),
+                                if (vid) FolderType.VIDEO else FolderType.IMAGE, "", ""),
+                            WallpaperTarget.LOCK
+                        )
+                    }
+                }
+                "global_off" -> {
+                    prefs.setAppEnabled(false)
+                    if (prefs.pauseTimersOnGlobalOff.first()) {
+                        val keys = listOf("home_image", "home_video", "lock_image", "lock_video")
+                            .filter { key ->
+                                when (key) {
+                                    "home_image" -> prefs.homeImageTimerEnabled.first()
+                                    "home_video" -> prefs.homeVideoTimerEnabled.first()
+                                    "lock_image" -> prefs.lockImageTimerEnabled.first()
+                                    "lock_video" -> prefs.lockVideoTimerEnabled.first()
+                                    else -> false
+                                }
+                            }
+                            .filter { key -> timerManager.paused.value[key] != true }
+                        keys.forEach { key -> timerManager.pause(key) }
+                        prefs.setGlobalOffPausedTimers(keys.toSet())
+                        getSystemService(NotificationManager::class.java)
+                            ?.cancel(TimerStatusNotificationHelper.NOTIFICATION_ID)
+                    }
+                }
+                else -> Log.w(TAG, "Unknown watch action: $actionType")
+            }
+            Log.d(TAG, "Watch execute complete: $actionType")
+        } catch (e: Exception) {
+            Log.e(TAG, "Watch execute failed", e)
         }
     }
 
