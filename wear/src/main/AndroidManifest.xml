@@ -3,6 +3,11 @@
 
     <uses-feature android:name="android.hardware.type.watch" />
 
+    <!-- Required for WearableListenerService to be woken by GMS -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Required for Wearable Data Layer network transport -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <application
         android:name=".WearApplication"
         android:label="KLVW Watch"

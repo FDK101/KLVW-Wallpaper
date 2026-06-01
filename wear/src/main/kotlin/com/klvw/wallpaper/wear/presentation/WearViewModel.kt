@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeoutOrNull
 
 sealed interface WearUiState {
     object Loading : WearUiState
@@ -32,18 +33,6 @@ class WearViewModel(private val appContext: Context) : ViewModel() {
     private val _state = MutableStateFlow<WearUiState>(WearUiState.Loading)
     val state: StateFlow<WearUiState> = _state.asStateFlow()
 
-    init {
-        viewModelScope.launch {
-            WearMessageBus.configResponses.collect { json ->
-                val items = listFromJson(json)
-                _state.value = if (items.isEmpty())
-                    WearUiState.Error("No watch items configured.\nOpen KLVW on your phone →\nSettings → KLVW Watch → Add items.")
-                else
-                    WearUiState.Ready(items)
-            }
-        }
-    }
-
     fun loadConfig() {
         viewModelScope.launch {
             _state.value = WearUiState.Loading
@@ -57,7 +46,23 @@ class WearViewModel(private val appContext: Context) : ViewModel() {
                 Wearable.getMessageClient(appContext)
                     .sendMessage(phone.id, WearPaths.CONFIG_REQUEST, ByteArray(0))
                     .await()
-                // Response arrives via WearMessageListenerService → WearMessageBus
+                // Wait up to 8 s for the phone's service to respond
+                val json = withTimeoutOrNull(8_000L) {
+                    WearMessageBus.configResponses.first()
+                }
+                if (json == null) {
+                    _state.value = WearUiState.Error(
+                        "Phone did not respond.\nMake sure KLVW is installed\nand running on your phone."
+                    )
+                    return@launch
+                }
+                val items = listFromJson(json)
+                _state.value = if (items.isEmpty())
+                    WearUiState.Error(
+                        "No watch items configured.\nOpen KLVW on your phone →\nSettings → KLVW Watch → Add items."
+                    )
+                else
+                    WearUiState.Ready(items)
             } catch (e: Exception) {
                 _state.value = WearUiState.Error("Could not reach phone:\n${e.message}")
             }
