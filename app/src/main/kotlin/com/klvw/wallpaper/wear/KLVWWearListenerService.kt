@@ -4,7 +4,6 @@ import android.app.NotificationManager
 import android.net.Uri
 import android.util.Log
 import com.google.android.gms.wearable.MessageEvent
-import com.google.android.gms.wearable.Wearable
 import com.google.android.gms.wearable.WearableListenerService
 import com.klvw.wallpaper.data.model.FolderType
 import com.klvw.wallpaper.data.model.WallpaperItem
@@ -25,13 +24,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import org.json.JSONObject
 
-private const val PATH_CONFIG_REQUEST  = "/klvw/config/request"
-private const val PATH_CONFIG_RESPONSE = "/klvw/config/response"
-private const val PATH_EXECUTE         = "/klvw/execute"
-private const val PATH_EXECUTE_ACK     = "/klvw/execute/ack"
+private const val PATH_EXECUTE = "/klvw/execute"
 private const val TAG = "KLVWWearListener"
 
 class KLVWWearListenerService : WearableListenerService() {
@@ -50,7 +45,7 @@ class KLVWWearListenerService : WearableListenerService() {
         EntryPointAccessors.fromApplication(applicationContext, WearListenerEntryPoint::class.java)
     }
 
-    private val prefs            get() = ep.settingsPreferences()
+    private val prefs               get() = ep.settingsPreferences()
     private val wallpaperRepository get() = ep.wallpaperRepository()
     private val folderRepository    get() = ep.folderRepository()
     private val shuffleHistoryManager get() = ep.shuffleHistoryManager()
@@ -65,21 +60,10 @@ class KLVWWearListenerService : WearableListenerService() {
 
     override fun onMessageReceived(event: MessageEvent) {
         Log.d(TAG, "onMessageReceived: ${event.path}")
-        when (event.path) {
-            PATH_CONFIG_REQUEST -> handleConfigRequest(event.sourceNodeId)
-            PATH_EXECUTE        -> handleExecute(event.sourceNodeId, event.data)
-        }
+        if (event.path == PATH_EXECUTE) handleExecute(event.data)
     }
 
-    private fun handleConfigRequest(sourceNodeId: String) {
-        scope.launch {
-            val json = prefs.klvwWatchItemsJson.first()
-            Log.d(TAG, "Sending config response: $json")
-            sendMessage(sourceNodeId, PATH_CONFIG_RESPONSE, json.toByteArray(Charsets.UTF_8))
-        }
-    }
-
-    private fun handleExecute(sourceNodeId: String, data: ByteArray) {
+    private fun handleExecute(data: ByteArray) {
         scope.launch {
             try {
                 val obj        = JSONObject(String(data, Charsets.UTF_8))
@@ -160,19 +144,9 @@ class KLVWWearListenerService : WearableListenerService() {
                     }
                     else -> Log.w(TAG, "Unknown watch action: $actionType")
                 }
-
-                sendMessage(sourceNodeId, PATH_EXECUTE_ACK, "ok".toByteArray(Charsets.UTF_8))
             } catch (e: Exception) {
                 Log.e(TAG, "Execute failed", e)
             }
-        }
-    }
-
-    private suspend fun sendMessage(nodeId: String, path: String, data: ByteArray) {
-        try {
-            Wearable.getMessageClient(this).sendMessage(nodeId, path, data).await()
-        } catch (e: Exception) {
-            Log.e(TAG, "sendMessage($path) failed", e)
         }
     }
 }

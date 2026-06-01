@@ -17,6 +17,7 @@ import com.klvw.wallpaper.data.prefs.SettingsPreferences
 import com.klvw.wallpaper.tile.ScreenUnlockReceiver
 import com.klvw.wallpaper.tile.TimerStatusNotificationHelper
 import com.klvw.wallpaper.tile.WallpaperTimerManager
+import com.klvw.wallpaper.wear.WatchConfigSync
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -78,6 +79,14 @@ class KLVWApplication : Application(), SingletonImageLoader.Factory {
         //
         // State-flow changes (pause / resume / reset / timer fire) wake the collector immediately
         // without waiting for the next tick.
+        // Push watch config to DataClient on start and on every change so the watch can
+        // read it directly without needing MessageClient round-trips.
+        appScope.launch {
+            prefs.klvwWatchItemsJson.collect { json ->
+                WatchConfigSync.sync(applicationContext, json)
+            }
+        }
+
         appScope.launch {
             val enabledKeysFlow = combine(
                 prefs.homeImageTimerEnabled,

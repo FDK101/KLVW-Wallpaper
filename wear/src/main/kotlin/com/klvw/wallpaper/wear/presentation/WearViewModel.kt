@@ -1,22 +1,21 @@
 package com.klvw.wallpaper.wear.presentation
 
 import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.google.android.gms.wearable.DataMapItem
 import com.google.android.gms.wearable.Wearable
 import com.klvw.wallpaper.wear.comms.WatchPopupItem
 import com.klvw.wallpaper.wear.comms.WatchPopupItem.Companion.listFromJson
-import com.klvw.wallpaper.wear.comms.WearMessageBus
 import com.klvw.wallpaper.wear.comms.WearPaths
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
-import kotlinx.coroutines.withTimeoutOrNull
 
 sealed interface WearUiState {
     object Loading : WearUiState
@@ -38,25 +37,22 @@ class WearViewModel(private val appContext: Context) : ViewModel() {
         viewModelScope.launch {
             _state.value = WearUiState.Loading
             try {
-                val nodes = Wearable.getNodeClient(appContext).connectedNodes.await()
-                val phone = nodes.firstOrNull()
-                if (phone == null) {
-                    _state.value = WearUiState.NoPhone
-                    return@launch
-                }
-                Wearable.getMessageClient(appContext)
-                    .sendMessage(phone.id, WearPaths.CONFIG_REQUEST, ByteArray(0))
+                val dataItems = Wearable.getDataClient(appContext)
+                    .getDataItems(Uri.parse("wear://*/klvw/config"))
                     .await()
-                // Wait up to 8 s for the phone's service to respond
-                val json = withTimeoutOrNull<String>(8_000L) {
-                    WearMessageBus.configResponses.first()
+
+                val json = dataItems.firstOrNull()?.let { item ->
+                    DataMapItem.fromDataItem(item).dataMap.getString("items")
                 }
+                dataItems.release()
+
                 if (json == null) {
                     _state.value = WearUiState.Error(
-                        "Phone did not respond.\nMake sure KLVW is installed\nand running on your phone."
+                        "Config not synced yet.\nOpen KLVW on your phone,\nthen re-open this app."
                     )
                     return@launch
                 }
+
                 val items = listFromJson(json)
                 _state.value = if (items.isEmpty())
                     WearUiState.Error(
@@ -65,7 +61,7 @@ class WearViewModel(private val appContext: Context) : ViewModel() {
                 else
                     WearUiState.Ready(items)
             } catch (e: Exception) {
-                _state.value = WearUiState.Error("Could not reach phone:\n${e.message}")
+                _state.value = WearUiState.Error("Load failed:\n${e.message}")
             }
         }
     }
@@ -87,6 +83,7 @@ class WearViewModel(private val appContext: Context) : ViewModel() {
                         WearPaths.EXECUTE,
                         item.toJson().toString().toByteArray(Charsets.UTF_8)
                     ).await()
+                // Consider it sent — show success without waiting for ack
                 _state.value = currentReady.copy(executingId = null, successId = item.id)
                 delay(1_000L)
                 _state.value = currentReady.copy(executingId = null, successId = null)
