@@ -9,6 +9,7 @@ plugins {
 android {
     namespace = "com.klvw.wallpaper"
     compileSdk = 36
+    ndkVersion = "27.0.12077973"
 
     defaultConfig {
         applicationId = "com.klvw.wallpaper"
