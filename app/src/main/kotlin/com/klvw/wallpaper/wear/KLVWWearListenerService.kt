@@ -15,7 +15,10 @@ import com.klvw.wallpaper.data.repository.FolderRepository
 import com.klvw.wallpaper.data.repository.WallpaperRepository
 import com.klvw.wallpaper.tile.TimerStatusNotificationHelper
 import com.klvw.wallpaper.tile.WallpaperTimerManager
-import dagger.hilt.android.AndroidEntryPoint
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -24,7 +27,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import org.json.JSONObject
-import javax.inject.Inject
 
 private const val PATH_CONFIG_REQUEST  = "/klvw/config/request"
 private const val PATH_CONFIG_RESPONSE = "/klvw/config/response"
@@ -32,14 +34,27 @@ private const val PATH_EXECUTE         = "/klvw/execute"
 private const val PATH_EXECUTE_ACK     = "/klvw/execute/ack"
 private const val TAG = "KLVWWearListener"
 
-@AndroidEntryPoint
 class KLVWWearListenerService : WearableListenerService() {
 
-    @Inject lateinit var prefs: SettingsPreferences
-    @Inject lateinit var wallpaperRepository: WallpaperRepository
-    @Inject lateinit var folderRepository: FolderRepository
-    @Inject lateinit var shuffleHistoryManager: ShuffleHistoryManager
-    @Inject lateinit var timerManager: WallpaperTimerManager
+    @EntryPoint
+    @InstallIn(SingletonComponent::class)
+    interface WearListenerEntryPoint {
+        fun settingsPreferences(): SettingsPreferences
+        fun wallpaperRepository(): WallpaperRepository
+        fun folderRepository(): FolderRepository
+        fun shuffleHistoryManager(): ShuffleHistoryManager
+        fun wallpaperTimerManager(): WallpaperTimerManager
+    }
+
+    private val ep: WearListenerEntryPoint by lazy {
+        EntryPointAccessors.fromApplication(applicationContext, WearListenerEntryPoint::class.java)
+    }
+
+    private val prefs            get() = ep.settingsPreferences()
+    private val wallpaperRepository get() = ep.wallpaperRepository()
+    private val folderRepository    get() = ep.folderRepository()
+    private val shuffleHistoryManager get() = ep.shuffleHistoryManager()
+    private val timerManager        get() = ep.wallpaperTimerManager()
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -49,6 +64,7 @@ class KLVWWearListenerService : WearableListenerService() {
     }
 
     override fun onMessageReceived(event: MessageEvent) {
+        Log.d(TAG, "onMessageReceived: ${event.path}")
         when (event.path) {
             PATH_CONFIG_REQUEST -> handleConfigRequest(event.sourceNodeId)
             PATH_EXECUTE        -> handleExecute(event.sourceNodeId, event.data)
@@ -58,6 +74,7 @@ class KLVWWearListenerService : WearableListenerService() {
     private fun handleConfigRequest(sourceNodeId: String) {
         scope.launch {
             val json = prefs.klvwWatchItemsJson.first()
+            Log.d(TAG, "Sending config response: $json")
             sendMessage(sourceNodeId, PATH_CONFIG_RESPONSE, json.toByteArray(Charsets.UTF_8))
         }
     }
