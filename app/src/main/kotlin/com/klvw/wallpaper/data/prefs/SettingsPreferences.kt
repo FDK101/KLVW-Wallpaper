@@ -87,6 +87,7 @@ class SettingsPreferences @Inject constructor(
         val TIMER_UNLOCK_NOTIFICATION = booleanPreferencesKey("timer_unlock_notification")
         val PAUSE_TIMERS_ON_GLOBAL_OFF = booleanPreferencesKey("pause_timers_on_global_off")
         val GLOBAL_OFF_PAUSED_TIMERS = stringPreferencesKey("global_off_paused_timers")
+        val KLVW_WATCH_ITEMS_JSON = stringPreferencesKey("klvw_watch_items_json")
         val HOME_IMAGE_TIMER_ENABLED = booleanPreferencesKey("home_image_timer_enabled")
         val HOME_IMAGE_TIMER_INTERVAL_MIN = intPreferencesKey("home_image_timer_interval_min")
         val HOME_VIDEO_TIMER_ENABLED = booleanPreferencesKey("home_video_timer_enabled")
@@ -154,6 +155,8 @@ class SettingsPreferences @Inject constructor(
     val globalOffPausedTimers: Flow<Set<String>> = context.dataStore.data.map { prefs ->
         prefs[Keys.GLOBAL_OFF_PAUSED_TIMERS]?.split(",")?.filter { it.isNotEmpty() }?.toSet() ?: emptySet()
     }.distinctUntilChanged()
+    val klvwWatchItemsJson: Flow<String> = context.dataStore.data
+        .map { it[Keys.KLVW_WATCH_ITEMS_JSON] ?: "[]" }.distinctUntilChanged()
     val homeImageTimerEnabled: Flow<Boolean> = context.dataStore.data.map { it[Keys.HOME_IMAGE_TIMER_ENABLED] ?: false }.distinctUntilChanged()
     val homeImageTimerIntervalMin: Flow<Int> = context.dataStore.data.map { it[Keys.HOME_IMAGE_TIMER_INTERVAL_MIN] ?: 60 }.distinctUntilChanged()
     val homeVideoTimerEnabled: Flow<Boolean> = context.dataStore.data.map { it[Keys.HOME_VIDEO_TIMER_ENABLED] ?: false }.distinctUntilChanged()
@@ -420,6 +423,10 @@ class SettingsPreferences @Inject constructor(
             if (keys.isEmpty()) it.remove(Keys.GLOBAL_OFF_PAUSED_TIMERS)
             else it[Keys.GLOBAL_OFF_PAUSED_TIMERS] = keys.joinToString(",")
         }
+    }
+
+    suspend fun setKlvwWatchItemsJson(json: String) {
+        context.dataStore.edit { it[Keys.KLVW_WATCH_ITEMS_JSON] = json }
     }
 
     suspend fun setTimerEnabled(key: String, enabled: Boolean) {

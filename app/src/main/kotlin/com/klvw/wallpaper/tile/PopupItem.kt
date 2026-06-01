@@ -50,6 +50,7 @@ const val POPUP_ACTION_TIMER = "timer"
 const val POPUP_ACTION_FOLDER_SELECT_ALL = "folder_select_all"
 const val POPUP_ACTION_DISPLAY_CONTROL = "display_control"
 const val POPUP_ACTION_PUJIE_WATCH_FACE = "pujie_watch_face"
+const val POPUP_ACTION_GLOBAL_OFF = "global_off"
 
 data class PujieWatchFacePreset(
     val id: String = UUID.randomUUID().toString(),

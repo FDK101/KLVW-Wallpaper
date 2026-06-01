@@ -1,0 +1,3 @@
+-keep class com.google.android.gms.wearable.** { *; }
+-keep class com.klvw.wallpaper.wear.comms.WatchPopupItem { *; }
+-keep class org.json.** { *; }

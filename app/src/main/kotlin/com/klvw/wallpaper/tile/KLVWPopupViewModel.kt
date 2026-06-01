@@ -199,6 +199,10 @@ class KLVWPopupViewModel @Inject constructor(
     fun setQuickSetWatchPresetId(id: String?) { viewModelScope.launch { prefs.setQuickSetWatchPresetId(id) } }
     fun setTimerUnlockNotification(enabled: Boolean) { viewModelScope.launch { prefs.setTimerUnlockNotification(enabled) } }
     fun setPauseTimersOnGlobalOff(enabled: Boolean) { viewModelScope.launch { prefs.setPauseTimersOnGlobalOff(enabled) } }
+    // KLVW Watch companion
+    val watchItemsJson: StateFlow<String> = prefs.klvwWatchItemsJson
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "[]")
+    fun saveWatchItems(json: String) { viewModelScope.launch { prefs.setKlvwWatchItemsJson(json) } }
     // Timer controls
     fun pauseTimer(key: String) = timerManager.pause(key)
     fun resumeTimer(key: String) = timerManager.resume(key)

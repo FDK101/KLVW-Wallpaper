@@ -121,4 +121,7 @@ dependencies {
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
 
+    // Wearable Data Layer (phone-side listener for Galaxy Watch companion)
+    implementation(libs.play.services.wearable)
+    implementation(libs.kotlinx.coroutines.play.services)
 }

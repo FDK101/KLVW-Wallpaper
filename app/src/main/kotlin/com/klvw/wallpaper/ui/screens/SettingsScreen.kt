@@ -8,8 +8,10 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -33,6 +35,8 @@ import coil3.SingletonImageLoader
 import com.klvw.wallpaper.tile.KLVWPopupViewModel
 import com.klvw.wallpaper.tile.PopupItem
 import com.klvw.wallpaper.tile.PujieWatchFacePreset
+import com.klvw.wallpaper.wear.WatchPopupItem
+import com.klvw.wallpaper.wear.toWatchJsonString
 import com.klvw.wallpaper.tile.PujieWatchFacePreset.Companion.toJsonString
 import com.klvw.wallpaper.ui.theme.SurfaceGlass
 import com.klvw.wallpaper.ui.viewmodel.WallpaperViewModel
@@ -137,6 +141,10 @@ fun SettingsScreen(viewModel: WallpaperViewModel, popupViewModel: KLVWPopupViewM
         SettingsSection(title = "Wallpaper Timers") {
             TimerNotificationSection(popupViewModel = popupViewModel)
             TimerGlobalOffSection(popupViewModel = popupViewModel)
+        }
+
+        SettingsSection(title = "KLVW Watch") {
+            KLVWWatchSection(popupViewModel = popupViewModel)
         }
 
         SettingsSection(title = "Popup Appearance") {
@@ -1139,5 +1147,304 @@ private fun SettingAction(
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         TextButton(onClick = onClick) { Text("Open") }
+    }
+}
+
+// ── KLVW Watch ────────────────────────────────────────────────────────────────
+
+@Composable
+private fun KLVWWatchSection(popupViewModel: KLVWPopupViewModel) {
+    val watchJson by popupViewModel.watchItemsJson.collectAsStateWithLifecycle()
+    val imageFolders by popupViewModel.imageFolders.collectAsStateWithLifecycle()
+    val videoFolders by popupViewModel.videoFolders.collectAsStateWithLifecycle()
+    var items by remember(watchJson) {
+        mutableStateOf(WatchPopupItem.listFromJson(watchJson))
+    }
+    var showEditor by remember { mutableStateOf(false) }
+    var editingItem by remember { mutableStateOf<WatchPopupItem?>(null) }
+    var showSideload by remember { mutableStateOf(false) }
+
+    fun save(updated: List<WatchPopupItem>) {
+        items = updated
+        popupViewModel.saveWatchItems(updated.toWatchJsonString())
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            "Configure actions for your Galaxy Watch. The watch app fetches this list when opened.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 4.dp)
+        )
+
+        if (items.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                    .padding(16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "No watch items yet. Tap \"Add Watch Item\" to get started.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else {
+            items.forEachIndexed { index, item ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = when (item.actionType) {
+                            "random_image" -> Icons.Default.Shuffle
+                            "random_video" -> Icons.Default.VideoLibrary
+                            "restore"      -> Icons.Default.Restore
+                            "global_off"   -> Icons.Default.PowerSettingsNew
+                            else           -> Icons.Default.TouchApp
+                        },
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = if (item.actionType == "global_off")
+                            MaterialTheme.colorScheme.error
+                        else
+                            MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(item.label, style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            buildString {
+                                append(item.actionType.replace("_", " "))
+                                if (item.target.isNotBlank() && item.actionType != "global_off" && item.actionType != "restore")
+                                    append(" · ${item.target}")
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    IconButton(onClick = { save(items.toMutableList().also { it.add(index - 1, it.removeAt(index)) }) },
+                        enabled = index > 0) {
+                        Icon(Icons.Default.KeyboardArrowUp, null, modifier = Modifier.size(18.dp))
+                    }
+                    IconButton(onClick = { save(items.toMutableList().also { it.add(index + 1, it.removeAt(index)) }) },
+                        enabled = index < items.lastIndex) {
+                        Icon(Icons.Default.KeyboardArrowDown, null, modifier = Modifier.size(18.dp))
+                    }
+                    IconButton(onClick = { editingItem = item; showEditor = true }) {
+                        Icon(Icons.Default.Edit, null, modifier = Modifier.size(18.dp))
+                    }
+                    IconButton(onClick = { save(items.filter { it.id != item.id }) }) {
+                        Icon(Icons.Default.Delete, null, modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+        }
+
+        Button(
+            onClick = { editingItem = null; showEditor = true },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("Add Watch Item")
+        }
+
+        WatchSideloadCard(expanded = showSideload, onToggle = { showSideload = !showSideload })
+    }
+
+    if (showEditor) {
+        WatchItemEditorDialog(
+            initial    = editingItem,
+            imageFolders = imageFolders.map { it.uri },
+            videoFolders = videoFolders.map { it.uri },
+            onSave = { newItem ->
+                save(
+                    if (editingItem != null) items.map { if (it.id == editingItem!!.id) newItem else it }
+                    else items + newItem
+                )
+                showEditor = false
+                editingItem = null
+            },
+            onDismiss = { showEditor = false; editingItem = null }
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun WatchItemEditorDialog(
+    initial: WatchPopupItem?,
+    imageFolders: List<String>,
+    videoFolders: List<String>,
+    onSave: (WatchPopupItem) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var label      by remember(initial) { mutableStateOf(initial?.label ?: "") }
+    var actionType by remember(initial) { mutableStateOf(initial?.actionType ?: "random_image") }
+    var target     by remember(initial) { mutableStateOf(initial?.target ?: "home") }
+    var folderUri  by remember(initial) { mutableStateOf(initial?.folderUri ?: "") }
+    var labelError by remember { mutableStateOf(false) }
+
+    val watchActions = listOf("random_image", "random_video", "restore", "global_off")
+    val actionLabels = mapOf(
+        "random_image" to "Random Image",
+        "random_video" to "Random Video",
+        "restore"      to "Restore",
+        "global_off"   to "Global Off"
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (initial != null) "Edit Watch Item" else "Add Watch Item") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = label,
+                    onValueChange = { label = it; labelError = false },
+                    label = { Text("Label") },
+                    isError = labelError,
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Text("Action Type", style = MaterialTheme.typography.labelMedium)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    watchActions.forEach { type ->
+                        FilterChip(
+                            selected = actionType == type,
+                            onClick  = {
+                                actionType = type
+                                if (type == "restore" || type == "global_off") {
+                                    target    = "home"
+                                    folderUri = ""
+                                }
+                            },
+                            label = { Text(actionLabels[type] ?: type) }
+                        )
+                    }
+                }
+
+                if (actionType == "random_image" || actionType == "random_video") {
+                    Text("Apply To", style = MaterialTheme.typography.labelMedium)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("home", "lock", "both").forEach { t ->
+                            FilterChip(
+                                selected = target == t,
+                                onClick  = { target = t },
+                                label    = { Text(t.replaceFirstChar { it.uppercase() }) }
+                            )
+                        }
+                    }
+
+                    val folders = if (actionType == "random_image") imageFolders else videoFolders
+                    if (folders.isNotEmpty()) {
+                        Text("Source Folder (optional)", style = MaterialTheme.typography.labelMedium)
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            FilterChip(
+                                selected = folderUri.isBlank(),
+                                onClick  = { folderUri = "" },
+                                label    = { Text("Default folder") }
+                            )
+                            folders.forEach { uri ->
+                                val name = Uri.parse(uri).lastPathSegment?.substringAfterLast(':') ?: uri
+                                FilterChip(
+                                    selected = folderUri == uri,
+                                    onClick  = { folderUri = uri },
+                                    label    = { Text(name, maxLines = 1) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                if (label.isBlank()) { labelError = true; return@TextButton }
+                onSave(
+                    WatchPopupItem(
+                        id         = initial?.id ?: java.util.UUID.randomUUID().toString(),
+                        label      = label.trim(),
+                        actionType = actionType,
+                        target     = target,
+                        folderUri  = folderUri
+                    )
+                )
+            }) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
+private fun WatchSideloadCard(expanded: Boolean, onToggle: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onToggle)
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.Watch, null, modifier = Modifier.size(22.dp),
+                tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(12.dp))
+            Text("Install Watch App", modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium)
+            Icon(
+                if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+        AnimatedVisibility(visible = expanded) {
+            Column(
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                HorizontalDivider()
+                Spacer(Modifier.height(4.dp))
+                Text("To sideload KLVW Watch onto your Galaxy Watch:",
+                    style = MaterialTheme.typography.bodySmall)
+                Text("1. On the watch: Settings → Developer options → Wireless debugging → Enable",
+                    style = MaterialTheme.typography.bodySmall)
+                Text("2. On your PC: pair and connect via ADB",
+                    style = MaterialTheme.typography.bodySmall)
+                androidx.compose.foundation.text.selection.SelectionContainer {
+                    Text(
+                        "   adb pair <ip>:<pairing-port>\n   adb connect <ip>:<port>",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                    )
+                }
+                Text("3. Install the watch APK:",
+                    style = MaterialTheme.typography.bodySmall)
+                androidx.compose.foundation.text.selection.SelectionContainer {
+                    Text(
+                        "   adb install -r wear/build/outputs/apk/debug/wear-debug.apk",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                    )
+                }
+                Text("4. Open \"KLVW Watch\" from the watch app drawer.",
+                    style = MaterialTheme.typography.bodySmall)
+            }
+        }
     }
 }
