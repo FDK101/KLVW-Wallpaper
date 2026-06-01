@@ -13,6 +13,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeoutOrNull
@@ -47,7 +48,7 @@ class WearViewModel(private val appContext: Context) : ViewModel() {
                     .sendMessage(phone.id, WearPaths.CONFIG_REQUEST, ByteArray(0))
                     .await()
                 // Wait up to 8 s for the phone's service to respond
-                val json = withTimeoutOrNull(8_000L) {
+                val json = withTimeoutOrNull<String>(8_000L) {
                     WearMessageBus.configResponses.first()
                 }
                 if (json == null) {
