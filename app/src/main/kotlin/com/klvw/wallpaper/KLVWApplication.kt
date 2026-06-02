@@ -79,10 +79,20 @@ class KLVWApplication : Application(), SingletonImageLoader.Factory {
             addAction(Intent.ACTION_SCREEN_OFF)
         })
 
+        // serverActive = false only during Android Doze (screen off 30+ min, device stationary).
+        // Screen-off alone is NOT enough — the watch is typically used while the phone is
+        // pocketed (screen off). Doze means the device is truly idle and the BT radio can sleep.
+        val serverActive = MutableStateFlow(powerManager?.isDeviceIdleMode != true)
+        registerReceiver(object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context, intent: Intent) {
+                serverActive.value = powerManager?.isDeviceIdleMode != true
+            }
+        }, IntentFilter(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED))
+
         // Start Bluetooth RFCOMM server — watch connects directly over classic BT.
         BtConfigServer(this, prefs, timerManager, appScope) { data ->
             handleWatchExecute(data)
-        }.start()
+        }.start(serverActive)
 
         appScope.launch {
             val enabledKeysFlow = combine(

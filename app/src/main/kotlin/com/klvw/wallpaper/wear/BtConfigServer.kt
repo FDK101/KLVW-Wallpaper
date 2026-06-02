@@ -10,6 +10,7 @@ import com.klvw.wallpaper.tile.WallpaperTimerManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -35,10 +36,27 @@ class BtConfigServer(
 
     private var serverSocket: BluetoothServerSocket? = null
 
-    fun start() {
+    fun start(screenOn: StateFlow<Boolean>) {
+        // Close the server socket whenever the screen turns off so the BT radio
+        // can enter its low-power state during doze / idle.
+        scope.launch(Dispatchers.IO) {
+            screenOn.collect { isOn ->
+                if (!isOn) {
+                    serverSocket?.close()
+                    serverSocket = null
+                }
+            }
+        }
+
         scope.launch(Dispatchers.IO) {
             var retryDelay = 2_000L
             while (isActive) {
+                if (!screenOn.value) {
+                    delay(2_000L)
+                    retryDelay = 2_000L
+                    continue
+                }
+
                 val adapter = try {
                     context.getSystemService(BluetoothManager::class.java)?.adapter
                 } catch (_: Exception) { null }
@@ -54,13 +72,15 @@ class BtConfigServer(
                     val ss = adapter.listenUsingInsecureRfcommWithServiceRecord("KLVWConfig", SERVICE_UUID)
                     serverSocket = ss
                     retryDelay = 2_000L
-                    while (isActive) {
+                    while (isActive && screenOn.value) {
                         val socket = ss.accept()
                         scope.launch(Dispatchers.IO) { handleClient(socket) }
                     }
                     ss.close()
+                    serverSocket = null
                 } catch (e: Exception) {
-                    if (isActive) {
+                    serverSocket = null
+                    if (isActive && screenOn.value) {
                         Log.e(TAG, "Server error: ${e.message}, retry in ${retryDelay}ms")
                         delay(retryDelay)
                         retryDelay = minOf(retryDelay * 2, 30_000L)
