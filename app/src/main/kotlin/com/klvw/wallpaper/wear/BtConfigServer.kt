@@ -1,0 +1,160 @@
+package com.klvw.wallpaper.wear
+
+import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothServerSocket
+import android.bluetooth.BluetoothSocket
+import android.content.Context
+import android.util.Log
+import com.klvw.wallpaper.data.prefs.SettingsPreferences
+import com.klvw.wallpaper.tile.WallpaperTimerManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.io.PrintWriter
+import java.util.UUID
+
+private const val TAG = "BtConfigServer"
+
+class BtConfigServer(
+    private val context: Context,
+    private val prefs: SettingsPreferences,
+    private val timerManager: WallpaperTimerManager,
+    private val scope: CoroutineScope,
+    private val executeHandler: suspend (ByteArray) -> Unit
+) {
+    companion object {
+        val SERVICE_UUID: UUID = UUID.fromString("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+    }
+
+    private var serverSocket: BluetoothServerSocket? = null
+
+    fun start() {
+        scope.launch(Dispatchers.IO) {
+            var retryDelay = 2_000L
+            while (isActive) {
+                val adapter = try {
+                    context.getSystemService(BluetoothManager::class.java)?.adapter
+                } catch (_: Exception) { null }
+
+                if (adapter == null || !adapter.isEnabled) {
+                    delay(retryDelay)
+                    retryDelay = minOf(retryDelay * 2, 30_000L)
+                    continue
+                }
+
+                try {
+                    @Suppress("MissingPermission")
+                    val ss = adapter.listenUsingInsecureRfcommWithServiceRecord("KLVWConfig", SERVICE_UUID)
+                    serverSocket = ss
+                    retryDelay = 2_000L
+                    while (isActive) {
+                        val socket = ss.accept()
+                        scope.launch(Dispatchers.IO) { handleClient(socket) }
+                    }
+                    ss.close()
+                } catch (e: Exception) {
+                    if (isActive) {
+                        Log.e(TAG, "Server error: ${e.message}, retry in ${retryDelay}ms")
+                        delay(retryDelay)
+                        retryDelay = minOf(retryDelay * 2, 30_000L)
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun handleClient(socket: BluetoothSocket) {
+        try {
+            socket.use {
+                val reader = BufferedReader(InputStreamReader(it.inputStream, Charsets.UTF_8))
+                val writer = PrintWriter(it.outputStream, true, Charsets.UTF_8)
+                val line = reader.readLine() ?: return
+                when {
+                    line == "GET_CONFIG" -> {
+                        val json = prefs.klvwWatchItemsJson.first()
+                        writer.println(json.replace('\n', ' ').replace('\r', ' '))
+                    }
+                    line == "GET_TIMERS" -> {
+                        writer.println(buildTimerJson().replace('\n', ' ').replace('\r', ' '))
+                    }
+                    line.startsWith("TIMER_ACTION:") -> {
+                        val parts = line.removePrefix("TIMER_ACTION:").split(":")
+                        if (parts.size >= 2) {
+                            handleTimerAction(parts[0], parts[1])
+                            writer.println(buildTimerJson().replace('\n', ' ').replace('\r', ' '))
+                        } else {
+                            writer.println("ERROR")
+                        }
+                    }
+                    line.startsWith("EXEC:") -> {
+                        executeHandler(line.removePrefix("EXEC:").toByteArray(Charsets.UTF_8))
+                        writer.println("OK")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Client handling error: ${e.message}")
+        }
+    }
+
+    private suspend fun buildTimerJson(): String {
+        val keys = listOf("home_image", "home_video", "lock_image", "lock_video")
+        val labels = mapOf(
+            "home_image" to "Home Image",
+            "home_video" to "Home Video",
+            "lock_image" to "Lock Image",
+            "lock_video" to "Lock Video"
+        )
+        val enabledMap = mapOf(
+            "home_image" to prefs.homeImageTimerEnabled.first(),
+            "home_video" to prefs.homeVideoTimerEnabled.first(),
+            "lock_image" to prefs.lockImageTimerEnabled.first(),
+            "lock_video" to prefs.lockVideoTimerEnabled.first()
+        )
+        val intervalMap = mapOf(
+            "home_image" to prefs.homeImageTimerIntervalMin.first(),
+            "home_video" to prefs.homeVideoTimerIntervalMin.first(),
+            "lock_image" to prefs.lockImageTimerIntervalMin.first(),
+            "lock_video" to prefs.lockVideoTimerIntervalMin.first()
+        )
+        val paused = timerManager.paused.value
+        val fireTimes = timerManager.nextFireTimes.value
+
+        val arr = JSONArray()
+        for (key in keys) {
+            if (enabledMap[key] != true) continue
+            arr.put(JSONObject().apply {
+                put("key", key)
+                put("label", labels[key])
+                put("intervalMin", intervalMap[key] ?: 60)
+                put("paused", paused[key] == true)
+                put("nextFireMs", if (paused[key] == true) 0L else fireTimes[key] ?: 0L)
+            })
+        }
+        return arr.toString()
+    }
+
+    private suspend fun handleTimerAction(key: String, action: String) {
+        when (action) {
+            "pause"  -> timerManager.pause(key)
+            "resume" -> timerManager.resume(key)
+            "reset"  -> {
+                val intervalMin = when (key) {
+                    "home_image" -> prefs.homeImageTimerIntervalMin.first()
+                    "home_video" -> prefs.homeVideoTimerIntervalMin.first()
+                    "lock_image" -> prefs.lockImageTimerIntervalMin.first()
+                    "lock_video" -> prefs.lockVideoTimerIntervalMin.first()
+                    else -> return
+                }
+                timerManager.scheduleAlarm(key, intervalMin)
+            }
+        }
+    }
+}

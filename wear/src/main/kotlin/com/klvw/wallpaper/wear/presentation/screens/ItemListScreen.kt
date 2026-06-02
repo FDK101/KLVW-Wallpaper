@@ -14,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
 import androidx.wear.compose.foundation.lazy.items
@@ -39,7 +40,7 @@ fun ItemListScreen(
     ScalingLazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(top = 28.dp, bottom = 20.dp, start = 8.dp, end = 8.dp)
+        contentPadding = PaddingValues(top = 28.dp, bottom = 24.dp, start = 24.dp, end = 24.dp)
     ) {
         item {
             ListHeader {
@@ -58,11 +59,13 @@ fun ItemListScreen(
                     ChipDefaults.primaryChipColors(backgroundColor = MaterialTheme.colors.error)
                 else
                     ChipDefaults.primaryChipColors(),
-                label    = { Text(item.label) },
+                label    = { Text(item.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 secondaryLabel = {
                     Text(
                         item.actionType.replace("_", " "),
-                        style = MaterialTheme.typography.caption2
+                        style = MaterialTheme.typography.caption2,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 },
                 icon = {

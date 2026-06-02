@@ -1,9 +1,12 @@
 package com.klvw.wallpaper.tile
 
+import android.app.Activity
+import android.app.KeyguardManager
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -18,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.klvw.wallpaper.data.model.FolderType
 import com.klvw.wallpaper.data.model.WallpaperItem
@@ -36,6 +40,14 @@ class KLVWQuickSetConfirmActivity : ComponentActivity() {
     @Inject lateinit var prefs: SettingsPreferences
     @Inject lateinit var wallpaperRepository: WallpaperRepository
     @Inject lateinit var timerManager: WallpaperTimerManager
+
+    private val authLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            restoreAndFinish()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -101,14 +113,7 @@ class KLVWQuickSetConfirmActivity : ComponentActivity() {
                                     Text("No", color = secondaryColor)
                                 }
                                 Button(
-                                    onClick = {
-                                        scope.launch {
-                                            prefs.setAppEnabled(true)
-                                            restorePreviousWallpapers()
-                                            restoreTimers()
-                                            finish()
-                                        }
-                                    },
+                                    onClick = { launchAuth() },
                                     modifier = Modifier.weight(1f)
                                 ) {
                                     Text("Yes")
@@ -118,6 +123,29 @@ class KLVWQuickSetConfirmActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    private fun launchAuth() {
+        val km = getSystemService(KeyguardManager::class.java)
+        @Suppress("DEPRECATION")
+        val intent = km?.createConfirmDeviceCredentialIntent(
+            "KLVW",
+            "Authentication required to re-enable wallpaper"
+        )
+        if (intent != null) {
+            authLauncher.launch(intent)
+        } else {
+            restoreAndFinish()
+        }
+    }
+
+    private fun restoreAndFinish() {
+        lifecycleScope.launch {
+            prefs.setAppEnabled(true)
+            restorePreviousWallpapers()
+            restoreTimers()
+            finish()
         }
     }
 

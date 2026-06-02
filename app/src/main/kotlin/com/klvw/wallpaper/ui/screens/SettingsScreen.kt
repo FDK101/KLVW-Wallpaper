@@ -1157,6 +1157,7 @@ private fun KLVWWatchSection(popupViewModel: KLVWPopupViewModel) {
     val watchJson by popupViewModel.watchItemsJson.collectAsStateWithLifecycle()
     val imageFolders by popupViewModel.imageFolders.collectAsStateWithLifecycle()
     val videoFolders by popupViewModel.videoFolders.collectAsStateWithLifecycle()
+    val globalOffVibrate by popupViewModel.watchGlobalOffVibrate.collectAsStateWithLifecycle()
     var items by remember(watchJson) {
         mutableStateOf(WatchPopupItem.listFromJson(watchJson))
     }
@@ -1208,6 +1209,7 @@ private fun KLVWWatchSection(popupViewModel: KLVWPopupViewModel) {
                             "random_video" -> Icons.Default.VideoLibrary
                             "restore"      -> Icons.Default.Restore
                             "global_off"   -> Icons.Default.PowerSettingsNew
+                            "timers"       -> Icons.Default.Timer
                             else           -> Icons.Default.TouchApp
                         },
                         contentDescription = null,
@@ -1223,7 +1225,10 @@ private fun KLVWWatchSection(popupViewModel: KLVWPopupViewModel) {
                         Text(
                             buildString {
                                 append(item.actionType.replace("_", " "))
-                                if (item.target.isNotBlank() && item.actionType != "global_off" && item.actionType != "restore")
+                                if (item.target.isNotBlank() &&
+                                    item.actionType != "global_off" &&
+                                    item.actionType != "restore" &&
+                                    item.actionType != "timers")
                                     append(" · ${item.target}")
                             },
                             style = MaterialTheme.typography.bodySmall,
@@ -1247,6 +1252,28 @@ private fun KLVWWatchSection(popupViewModel: KLVWPopupViewModel) {
                     }
                 }
             }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                .padding(horizontal = 12.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Vibrate on Global Off", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "Vibrate the phone when Global Off is triggered from the watch",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = globalOffVibrate,
+                onCheckedChange = { popupViewModel.setWatchGlobalOffVibrate(it) }
+            )
         }
 
         Button(
@@ -1294,12 +1321,13 @@ private fun WatchItemEditorDialog(
     var folderUri  by remember(initial) { mutableStateOf(initial?.folderUri ?: "") }
     var labelError by remember { mutableStateOf(false) }
 
-    val watchActions = listOf("random_image", "random_video", "restore", "global_off")
+    val watchActions = listOf("random_image", "random_video", "restore", "global_off", "timers")
     val actionLabels = mapOf(
         "random_image" to "Random Image",
         "random_video" to "Random Video",
         "restore"      to "Restore",
-        "global_off"   to "Global Off"
+        "global_off"   to "Global Off",
+        "timers"       to "Timers"
     )
 
     AlertDialog(
@@ -1323,7 +1351,7 @@ private fun WatchItemEditorDialog(
                             selected = actionType == type,
                             onClick  = {
                                 actionType = type
-                                if (type == "restore" || type == "global_off") {
+                                if (type == "restore" || type == "global_off" || type == "timers") {
                                     target    = "home"
                                     folderUri = ""
                                 }

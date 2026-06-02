@@ -15,7 +15,6 @@ import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
 import coil3.video.VideoFrameDecoder
-import com.google.android.gms.wearable.Wearable
 import com.klvw.wallpaper.data.model.FolderType
 import com.klvw.wallpaper.data.model.WallpaperItem
 import com.klvw.wallpaper.data.model.WallpaperTarget
@@ -26,7 +25,7 @@ import com.klvw.wallpaper.data.repository.WallpaperRepository
 import com.klvw.wallpaper.tile.ScreenUnlockReceiver
 import com.klvw.wallpaper.tile.TimerStatusNotificationHelper
 import com.klvw.wallpaper.tile.WallpaperTimerManager
-import com.klvw.wallpaper.wear.WatchConfigSync
+import com.klvw.wallpaper.wear.BtConfigServer
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -39,15 +38,11 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import okio.Path.Companion.toOkioPath
 import org.json.JSONObject
 import javax.inject.Inject
 
 private const val TAG = "KLVWApp"
-private const val PATH_CONFIG_REQUEST  = "/klvw/config/request"
-private const val PATH_CONFIG_RESPONSE = "/klvw/config/response"
-private const val PATH_EXECUTE         = "/klvw/execute"
 
 @HiltAndroidApp
 class KLVWApplication : Application(), SingletonImageLoader.Factory {
@@ -84,40 +79,10 @@ class KLVWApplication : Application(), SingletonImageLoader.Factory {
             addAction(Intent.ACTION_SCREEN_OFF)
         })
 
-        // Push watch config to DataClient whenever it changes (background cache for future opens).
-        appScope.launch {
-            prefs.klvwWatchItemsJson.collect { json ->
-                WatchConfigSync.sync(applicationContext, json)
-            }
-        }
-
-        // In-process MessageClient listener — works because the live wallpaper service keeps
-        // this process alive permanently. No GMS service wakeup required; messages are delivered
-        // directly to the running process, bypassing the WearableListenerService entirely.
-        try {
-            Wearable.getMessageClient(this).addListener { event ->
-                when (event.path) {
-                    PATH_CONFIG_REQUEST -> appScope.launch {
-                        try {
-                            val json = prefs.klvwWatchItemsJson.first()
-                            Wearable.getMessageClient(applicationContext)
-                                .sendMessage(event.sourceNodeId, PATH_CONFIG_RESPONSE,
-                                    json.toByteArray(Charsets.UTF_8))
-                                .await()
-                            Log.d(TAG, "Config sent to watch (${json.length} bytes)")
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Config response failed", e)
-                        }
-                    }
-                    PATH_EXECUTE -> appScope.launch {
-                        handleWatchExecute(event.data)
-                    }
-                }
-            }
-            Log.d(TAG, "Watch message listener registered")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to register watch listener", e)
-        }
+        // Start Bluetooth RFCOMM server — watch connects directly over classic BT.
+        BtConfigServer(this, prefs, timerManager, appScope) { data ->
+            handleWatchExecute(data)
+        }.start()
 
         appScope.launch {
             val enabledKeysFlow = combine(
@@ -201,6 +166,7 @@ class KLVWApplication : Application(), SingletonImageLoader.Factory {
                     wallpaperRepository.setWallpaper(item, wallpaperTarget)
                 }
                 "restore" -> {
+                    prefs.setAppEnabled(true)
                     prefs.prevHomeWallpaperUri.first()?.let { uri ->
                         val vid = prefs.prevHomeIsVideo.first()
                         wallpaperRepository.setWallpaper(
@@ -217,8 +183,27 @@ class KLVWApplication : Application(), SingletonImageLoader.Factory {
                             WallpaperTarget.LOCK
                         )
                     }
+                    val pausedKeys = prefs.globalOffPausedTimers.first()
+                    if (pausedKeys.isNotEmpty()) {
+                        pausedKeys.forEach { key -> timerManager.resume(key) }
+                        prefs.setGlobalOffPausedTimers(emptySet())
+                    }
                 }
                 "global_off" -> {
+                    // Apply quickSet static wallpapers first (records prevHomeWallpaperUri
+                    // so a subsequent Restore can go back, matching QS tile behaviour).
+                    prefs.quickSetHomeStaticUri.first()?.let { uri ->
+                        wallpaperRepository.setWallpaper(
+                            WallpaperItem(Uri.parse(uri), FolderType.IMAGE, "", ""),
+                            WallpaperTarget.HOME
+                        )
+                    }
+                    prefs.quickSetLockStaticUri.first()?.let { uri ->
+                        wallpaperRepository.setWallpaper(
+                            WallpaperItem(Uri.parse(uri), FolderType.IMAGE, "", ""),
+                            WallpaperTarget.LOCK
+                        )
+                    }
                     prefs.setAppEnabled(false)
                     if (prefs.pauseTimersOnGlobalOff.first()) {
                         val keys = listOf("home_image", "home_video", "lock_image", "lock_video")
@@ -237,10 +222,15 @@ class KLVWApplication : Application(), SingletonImageLoader.Factory {
                         getSystemService(NotificationManager::class.java)
                             ?.cancel(TimerStatusNotificationHelper.NOTIFICATION_ID)
                     }
+                    if (prefs.watchGlobalOffVibrate.first()) {
+                        getSystemService(android.os.Vibrator::class.java)
+                            ?.vibrate(android.os.VibrationEffect.createOneShot(
+                                300L, android.os.VibrationEffect.DEFAULT_AMPLITUDE
+                            ))
+                    }
                 }
                 else -> Log.w(TAG, "Unknown watch action: $actionType")
             }
-            Log.d(TAG, "Watch execute complete: $actionType")
         } catch (e: Exception) {
             Log.e(TAG, "Watch execute failed", e)
         }

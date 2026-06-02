@@ -1,26 +1,22 @@
 package com.klvw.wallpaper.wear.presentation
 
+import android.Manifest
 import android.content.Context
-import android.net.Uri
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.google.android.gms.wearable.CapabilityClient
-import com.google.android.gms.wearable.DataMapItem
-import com.google.android.gms.wearable.MessageClient
-import com.google.android.gms.wearable.Node
-import com.google.android.gms.wearable.Wearable
+import com.klvw.wallpaper.wear.comms.BtConfigClient
 import com.klvw.wallpaper.wear.comms.WatchPopupItem
 import com.klvw.wallpaper.wear.comms.WatchPopupItem.Companion.listFromJson
-import com.klvw.wallpaper.wear.comms.WearPaths
-import kotlinx.coroutines.CompletableDeferred
+import com.klvw.wallpaper.wear.comms.WatchTimerInfo
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
-import kotlinx.coroutines.withTimeoutOrNull
 
 sealed interface WearUiState {
     object Loading : WearUiState
@@ -33,52 +29,47 @@ sealed interface WearUiState {
     ) : WearUiState
 }
 
+sealed interface TimerUiState {
+    object Loading : TimerUiState
+    data class Error(val msg: String) : TimerUiState
+    data class Ready(
+        val timers: List<WatchTimerInfo>,
+        val actionKey: String? = null
+    ) : TimerUiState
+}
+
+sealed interface WatchScreen {
+    object Main : WatchScreen
+    object Timers : WatchScreen
+    data class ConfirmRestore(val item: WatchPopupItem) : WatchScreen
+}
+
 class WearViewModel(private val appContext: Context) : ViewModel() {
 
     private val _state = MutableStateFlow<WearUiState>(WearUiState.Loading)
     val state: StateFlow<WearUiState> = _state.asStateFlow()
 
+    private val _timerState = MutableStateFlow<TimerUiState>(TimerUiState.Loading)
+    val timerState: StateFlow<TimerUiState> = _timerState.asStateFlow()
+
+    private val _screen = MutableStateFlow<WatchScreen>(WatchScreen.Main)
+    val screen: StateFlow<WatchScreen> = _screen.asStateFlow()
+
     fun loadConfig() {
         viewModelScope.launch {
             _state.value = WearUiState.Loading
             try {
-                // 1. Try DataClient first — instant if phone already synced (no round-trip).
-                val cached = readFromDataClient()
-                if (cached != null) {
-                    applyJson(cached)
-                    return@launch
-                }
-
-                // 2. DataClient empty — find the phone node and request config via MessageClient.
-                //    CapabilityClient finds nodes that have the klvw_phone capability declared,
-                //    which tells GMS/Samsung which phone app is paired with this watch app.
-                val phone = findPhoneNode()
-                if (phone == null) {
-                    _state.value = WearUiState.NoPhone
-                    return@launch
-                }
-
-                val deferred = CompletableDeferred<String>()
-                val listener = MessageClient.OnMessageReceivedListener { event ->
-                    if (event.path == WearPaths.CONFIG_RESPONSE && !deferred.isCompleted) {
-                        deferred.complete(String(event.data, Charsets.UTF_8))
-                    }
-                }
-                Wearable.getMessageClient(appContext).addListener(listener)
-                try {
-                    Wearable.getMessageClient(appContext)
-                        .sendMessage(phone.id, WearPaths.CONFIG_REQUEST, ByteArray(0))
-                        .await()
-                    val json = withTimeoutOrNull<String>(8_000L) { deferred.await() }
-                    if (json == null) {
-                        _state.value = WearUiState.Error(
-                            "Phone did not respond.\nMake sure KLVW is installed\nand running on your phone."
-                        )
-                    } else {
-                        applyJson(json)
-                    }
-                } finally {
-                    Wearable.getMessageClient(appContext).removeListener(listener)
+                val json = BtConfigClient.getConfig(appContext)
+                if (json != null) {
+                    applyJson(json)
+                } else {
+                    val btGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+                        ContextCompat.checkSelfPermission(
+                            appContext, Manifest.permission.BLUETOOTH_CONNECT
+                        ) == PackageManager.PERMISSION_GRANTED
+                    _state.value = WearUiState.Error(
+                        "Phone did not respond.\nOpen KLVW on phone.\nBT:${if (btGranted) "ok" else "DENIED"}"
+                    )
                 }
             } catch (e: Exception) {
                 _state.value = WearUiState.Error("Load failed:\n${e.message}")
@@ -87,61 +78,90 @@ class WearViewModel(private val appContext: Context) : ViewModel() {
     }
 
     fun executeItem(item: WatchPopupItem) {
+        when (item.actionType) {
+            "timers" -> {
+                _screen.value = WatchScreen.Timers
+                loadTimers()
+                return
+            }
+            "restore" -> {
+                _screen.value = WatchScreen.ConfirmRestore(item)
+                return
+            }
+        }
+        sendExec(item)
+    }
+
+    fun confirmRestore(item: WatchPopupItem) {
+        _screen.value = WatchScreen.Main
+        sendExec(item)
+    }
+
+    fun cancelConfirm() {
+        _screen.value = WatchScreen.Main
+    }
+
+    private fun sendExec(item: WatchPopupItem) {
         val currentReady = _state.value as? WearUiState.Ready ?: return
         viewModelScope.launch {
             _state.value = currentReady.copy(executingId = item.id, successId = null)
             try {
-                val phone = findPhoneNode()
-                if (phone == null) {
-                    _state.value = WearUiState.NoPhone
-                    return@launch
+                val ok = BtConfigClient.execute(appContext, item.toJson().toString())
+                if (ok) {
+                    _state.value = currentReady.copy(executingId = null, successId = item.id)
+                    delay(1_000L)
+                    _state.value = currentReady.copy(executingId = null, successId = null)
+                } else {
+                    _state.value = WearUiState.Error("Action failed.\nOpen KLVW on phone.")
                 }
-                Wearable.getMessageClient(appContext)
-                    .sendMessage(
-                        phone.id,
-                        WearPaths.EXECUTE,
-                        item.toJson().toString().toByteArray(Charsets.UTF_8)
-                    ).await()
-                _state.value = currentReady.copy(executingId = null, successId = item.id)
-                delay(1_000L)
-                _state.value = currentReady.copy(executingId = null, successId = null)
             } catch (e: Exception) {
                 _state.value = WearUiState.Error("Action failed:\n${e.message}")
             }
         }
     }
 
+    fun loadTimers() {
+        viewModelScope.launch {
+            _timerState.value = TimerUiState.Loading
+            try {
+                val json = BtConfigClient.getTimers(appContext)
+                if (json != null) {
+                    val timers = WatchTimerInfo.listFromJson(json)
+                    _timerState.value = if (timers.isEmpty())
+                        TimerUiState.Error("No timers enabled.\nEnable timers in KLVW on your phone.")
+                    else
+                        TimerUiState.Ready(timers)
+                } else {
+                    _timerState.value = TimerUiState.Error("Phone did not respond.\nOpen KLVW on phone.")
+                }
+            } catch (e: Exception) {
+                _timerState.value = TimerUiState.Error("Load failed:\n${e.message}")
+            }
+        }
+    }
+
+    fun timerAction(key: String, action: String) {
+        val current = _timerState.value as? TimerUiState.Ready ?: return
+        viewModelScope.launch {
+            _timerState.value = current.copy(actionKey = key)
+            try {
+                val json = BtConfigClient.timerAction(appContext, key, action)
+                if (json != null && json != "ERROR") {
+                    _timerState.value = TimerUiState.Ready(WatchTimerInfo.listFromJson(json))
+                } else {
+                    _timerState.value = TimerUiState.Error("Action failed.\nOpen KLVW on phone.")
+                }
+            } catch (e: Exception) {
+                _timerState.value = TimerUiState.Error("Action failed:\n${e.message}")
+            }
+        }
+    }
+
+    fun navigateBack() {
+        _screen.value = WatchScreen.Main
+    }
+
     fun retry() = loadConfig()
-
-    private suspend fun findPhoneNode(): Node? {
-        // CapabilityClient finds nodes that declared the klvw_phone capability in wear.xml.
-        // This is how GMS/Samsung's companion routing identifies paired phone apps.
-        // Fall back to any connected node if capability isn't synced yet (first install).
-        return try {
-            val cap = Wearable.getCapabilityClient(appContext)
-                .getCapability("klvw_phone", CapabilityClient.FILTER_REACHABLE)
-                .await()
-            cap.nodes.firstOrNull { it.isNearby } ?: cap.nodes.firstOrNull()
-        } catch (_: Exception) {
-            null
-        } ?: run {
-            val nodes = Wearable.getNodeClient(appContext).connectedNodes.await()
-            nodes.firstOrNull()
-        }
-    }
-
-    private suspend fun readFromDataClient(): String? = try {
-        val dataItems = Wearable.getDataClient(appContext)
-            .getDataItems(Uri.parse("wear://*/klvw/config"))
-            .await()
-        val json = dataItems.firstOrNull()?.let { item ->
-            DataMapItem.fromDataItem(item).dataMap.getString("items")
-        }
-        dataItems.release()
-        json
-    } catch (e: Exception) {
-        null
-    }
 
     private fun applyJson(json: String) {
         val items = listFromJson(json)

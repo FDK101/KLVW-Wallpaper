@@ -203,6 +203,9 @@ class KLVWPopupViewModel @Inject constructor(
     val watchItemsJson: StateFlow<String> = prefs.klvwWatchItemsJson
         .stateIn(viewModelScope, SharingStarted.Eagerly, "[]")
     fun saveWatchItems(json: String) { viewModelScope.launch { prefs.setKlvwWatchItemsJson(json) } }
+    val watchGlobalOffVibrate: StateFlow<Boolean> = prefs.watchGlobalOffVibrate
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    fun setWatchGlobalOffVibrate(enabled: Boolean) { viewModelScope.launch { prefs.setWatchGlobalOffVibrate(enabled) } }
     // Timer controls
     fun pauseTimer(key: String) = timerManager.pause(key)
     fun resumeTimer(key: String) = timerManager.resume(key)

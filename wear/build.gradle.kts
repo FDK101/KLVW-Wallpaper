@@ -63,10 +63,6 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
 
-    // Wearable Data Layer
-    implementation(libs.play.services.wearable)
-    implementation(libs.kotlinx.coroutines.play.services)
-
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
 }

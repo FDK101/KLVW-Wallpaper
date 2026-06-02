@@ -2,6 +2,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Vibrate phone as feedback when Global Off is triggered from the watch -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Android 12+: runtime permission required for Bluetooth data transfer (DataClient/MessageClient) -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
     <!-- Wallpaper permissions -->
     <uses-permission android:name="android.permission.SET_WALLPAPER" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
@@ -252,18 +260,6 @@
             </intent-filter>
         </activity>
 
-        <!-- Wearable Data Layer listener — handles Galaxy Watch config/execute requests. -->
-        <service
-            android:name=".wear.KLVWWearListenerService"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
-                <data
-                    android:scheme="wear"
-                    android:host="*"
-                    android:pathPrefix="/klvw" />
-            </intent-filter>
-        </service>
 
     </application>
 

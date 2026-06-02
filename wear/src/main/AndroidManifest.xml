@@ -3,24 +3,13 @@
 
     <uses-feature android:name="android.hardware.type.watch" />
 
-    <!-- Required for WearableListenerService to be woken by GMS -->
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <!-- Required for Wearable Data Layer network transport -->
-    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
     <application
         android:name=".WearApplication"
         android:label="KLVW Watch"
         android:theme="@android:style/Theme.DeviceDefault"
         android:allowBackup="false">
-
-        <uses-library
-            android:name="com.google.android.wearable"
-            android:required="true" />
-
-        <meta-data
-            android:name="com.google.android.wearable.standalone"
-            android:value="false" />
 
         <activity
             android:name=".presentation.WearMainActivity"
@@ -32,18 +21,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-
-        <service
-            android:name=".comms.WearMessageListenerService"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
-                <data
-                    android:scheme="wear"
-                    android:host="*"
-                    android:pathPrefix="/klvw" />
-            </intent-filter>
-        </service>
 
     </application>
 </manifest>

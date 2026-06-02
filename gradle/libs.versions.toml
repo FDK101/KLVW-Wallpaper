@@ -16,6 +16,7 @@ activity-compose = "1.9.3"
 coroutines = "1.9.0"
 wear-compose = "1.4.0"
 play-services-wearable = "18.0.0"
+fragment = "1.6.2"
 
 [libraries]
 # AndroidX Core
@@ -65,6 +66,9 @@ hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-com
 # Coroutines
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlinx-coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-play-services", version.ref = "coroutines" }
+
+# Fragment (required to satisfy InvalidFragmentVersionForActivityResult lint check in wear module)
+androidx-fragment-ktx = { group = "androidx.fragment", name = "fragment-ktx", version.ref = "fragment" }
 
 # Wear OS
 wear-compose-material = { group = "androidx.wear.compose", name = "compose-material", version.ref = "wear-compose" }
