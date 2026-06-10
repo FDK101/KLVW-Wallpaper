@@ -92,6 +92,10 @@ class ScreenUnlockReceiver : BroadcastReceiver() {
             }
         }
         if (enabledKeys.isEmpty()) return
+        if (prefs.timerNotificationOnlyWhenRunning.first()) {
+            val allPaused = enabledKeys.all { timerManager.paused.value[it] == true }
+            if (allPaused) return
+        }
         TimerStatusNotificationHelper.show(
             context,
             enabledKeys,

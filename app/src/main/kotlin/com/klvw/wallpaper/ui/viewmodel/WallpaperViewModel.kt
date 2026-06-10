@@ -1,8 +1,10 @@
 package com.klvw.wallpaper.ui.viewmodel
 
+import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.klvw.wallpaper.aer.AerFolder
 import com.klvw.wallpaper.data.db.FolderEntity
 import com.klvw.wallpaper.data.model.FolderType
 import com.klvw.wallpaper.data.model.WallpaperItem
@@ -12,6 +14,7 @@ import com.klvw.wallpaper.data.repository.FolderRepository
 import com.klvw.wallpaper.data.repository.StaticImageRepository
 import com.klvw.wallpaper.data.repository.WallpaperRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -50,6 +53,7 @@ data class WallpaperUiState(
 
 @HiltViewModel
 class WallpaperViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val folderRepository: FolderRepository,
     private val wallpaperRepository: WallpaperRepository,
     private val staticImageRepository: StaticImageRepository,
@@ -259,31 +263,34 @@ class WallpaperViewModel @Inject constructor(
         viewModelScope.launch { prefs.setDefaultFolderUri(target, mediaType, uri) }
     }
 
+    fun getAvailableAerFolders(relPath: String? = null): List<AerFolder> = folderRepository.getAerFolders(relPath)
+
+    fun addAerFolder(aerFolder: AerFolder, type: FolderType) {
+        viewModelScope.launch { folderRepository.addAerFolder(aerFolder, type) }
+    }
+
     private fun loadPreviewItems(clearFirst: Boolean = false) {
         viewModelScope.launch(Dispatchers.IO) {
             if (clearFirst) _state.update { it.copy(isLoadingPreview = true, previewItems = emptyList()) }
             val s = _state.value
+            val selUri = s.selectedFolderUri
             val items = when (s.mediaTab) {
                 MediaTab.STATIC -> s.staticImages
-                MediaTab.IMAGE -> {
-                    val folders = s.imageFolders
-                    if (s.selectedFolderUri == null) {
-                        folders.flatMap { folderRepository.getItemsFromFolder(it.uri, FolderType.IMAGE) }
-                    } else {
-                        folders.find { it.uri == s.selectedFolderUri }
+                MediaTab.IMAGE -> when {
+                    selUri == null ->
+                        s.imageFolders.flatMap { folderRepository.getItemsFromFolder(it.uri, FolderType.IMAGE) }
+                    else ->
+                        s.imageFolders.find { it.uri == selUri }
                             ?.let { folderRepository.getItemsFromFolder(it.uri, FolderType.IMAGE) }
                             ?: emptyList()
-                    }
                 }
-                MediaTab.VIDEO -> {
-                    val folders = s.videoFolders
-                    if (s.selectedFolderUri == null) {
-                        folders.flatMap { folderRepository.getItemsFromFolder(it.uri, FolderType.VIDEO) }
-                    } else {
-                        folders.find { it.uri == s.selectedFolderUri }
+                MediaTab.VIDEO -> when {
+                    selUri == null ->
+                        s.videoFolders.flatMap { folderRepository.getItemsFromFolder(it.uri, FolderType.VIDEO) }
+                    else ->
+                        s.videoFolders.find { it.uri == selUri }
                             ?.let { folderRepository.getItemsFromFolder(it.uri, FolderType.VIDEO) }
                             ?: emptyList()
-                    }
                 }
             }
             _state.update { it.copy(previewItems = items, isLoadingPreview = false) }

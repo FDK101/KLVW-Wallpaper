@@ -47,6 +47,9 @@
         <provider android:authorities="net.dinglisch.android.tasker.TaskerContentProvider" />
         <provider android:authorities="net.dinglisch.android.taskerm.TaskerContentProvider" />
         <package android:name="com.pujie.watchfaces" />
+        <!-- DocumentsUI for opening Aer vault in system file manager -->
+        <package android:name="com.android.documentsui" />
+        <package android:name="com.google.android.documentsui" />
     </queries>
 
     <application
@@ -178,6 +181,35 @@
             android:excludeFromRecents="true"
             android:noHistory="true"
             android:showWhenLocked="true" />
+
+        <!-- Aer private media storage DocumentsProvider.
+             Internal KLVW callers always have access; external callers need mount (keyguard auth). -->
+        <provider
+            android:name=".aer.AerDocumentsProvider"
+            android:authorities="${applicationId}.aer"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter>
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+            </intent-filter>
+        </provider>
+
+<!-- Aer mount activity — launches keyguard auth and sets AerLockStore.isMounted. -->
+        <!-- Must NOT be translucent: framework BiometricPrompt requires a real window surface. -->
+        <activity
+            android:name=".aer.AerMountActivity"
+            android:exported="false"
+            android:theme="@style/Theme.KLVWWallpaper"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
+            android:noHistory="false" />
+
+        <!-- Aer file browser activity — main UI for managing aer private storage. -->
+        <activity
+            android:name=".aer.ui.AerActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
 
         <!-- FileProvider for sharing Tasker task template files -->
         <provider

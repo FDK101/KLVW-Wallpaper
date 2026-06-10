@@ -22,6 +22,7 @@ import com.klvw.wallpaper.data.prefs.SettingsPreferences
 import com.klvw.wallpaper.data.prefs.ShuffleHistoryManager
 import com.klvw.wallpaper.data.repository.FolderRepository
 import com.klvw.wallpaper.data.repository.WallpaperRepository
+import com.klvw.wallpaper.aer.AerLockStore
 import com.klvw.wallpaper.tile.ScreenUnlockReceiver
 import com.klvw.wallpaper.tile.TimerStatusNotificationHelper
 import com.klvw.wallpaper.tile.WallpaperTimerManager
@@ -73,11 +74,30 @@ class KLVWApplication : Application(), SingletonImageLoader.Factory {
         registerReceiver(object : BroadcastReceiver() {
             override fun onReceive(ctx: Context, intent: Intent) {
                 screenOn.value = intent.action == Intent.ACTION_SCREEN_ON
+                if (intent.action == Intent.ACTION_SCREEN_OFF && AerLockStore.isMounted) {
+                    appScope.launch {
+                        if (prefs.aerUnmountOnLock.first()) {
+                            AerLockStore.lock(ctx.applicationContext)
+                        }
+                    }
+                }
             }
         }, IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_ON)
             addAction(Intent.ACTION_SCREEN_OFF)
         })
+
+        // Schedule auto-unmount whenever Aer is mounted, based on user pref
+        AerLockStore.addListener { isLocked ->
+            if (!isLocked) {
+                appScope.launch {
+                    val minutes = prefs.aerAutoUnmountMinutes.first()
+                    if (minutes > 0) {
+                        AerLockStore.scheduleAutoUnmount(applicationContext, minutes * 60_000L)
+                    }
+                }
+            }
+        }
 
         // serverActive = false only during Android Doze (screen off 30+ min, device stationary).
         // Screen-off alone is NOT enough — the watch is typically used while the phone is

@@ -68,7 +68,8 @@ fun PopupItemEditorDialog(
                     POPUP_ACTION_TIMER             to "Timer Control",
                     POPUP_ACTION_FOLDER_SELECT_ALL to "All Folders",
                     POPUP_ACTION_DISPLAY_CONTROL   to "Display Control",
-                    POPUP_ACTION_PUJIE_WATCH_FACE  to "Pujie Watch Face"
+                    POPUP_ACTION_PUJIE_WATCH_FACE  to "Pujie Watch Face",
+                    POPUP_ACTION_AER_MOUNT         to "Aer Mount"
                 )
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -142,7 +143,8 @@ fun PopupItemEditorDialog(
                     POPUP_ACTION_FOLDER_SELECT_ALL,
                     POPUP_ACTION_TIMER,
                     POPUP_ACTION_DISPLAY_CONTROL,
-                    POPUP_ACTION_PUJIE_WATCH_FACE
+                    POPUP_ACTION_PUJIE_WATCH_FACE,
+                    POPUP_ACTION_AER_MOUNT
                 )
                 if (actionType !in noTargetActions) {
                     Text("Apply To", style = MaterialTheme.typography.labelLarge)

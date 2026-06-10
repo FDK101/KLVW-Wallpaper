@@ -85,6 +85,7 @@ class SettingsPreferences @Inject constructor(
         val PUJIE_WATCH_FACES_JSON = stringPreferencesKey("pujie_watch_faces_json")
         // Timers
         val TIMER_UNLOCK_NOTIFICATION = booleanPreferencesKey("timer_unlock_notification")
+        val TIMER_NOTIFICATION_ONLY_WHEN_RUNNING = booleanPreferencesKey("timer_notification_only_when_running")
         val PAUSE_TIMERS_ON_GLOBAL_OFF = booleanPreferencesKey("pause_timers_on_global_off")
         val GLOBAL_OFF_PAUSED_TIMERS = stringPreferencesKey("global_off_paused_timers")
         val KLVW_WATCH_ITEMS_JSON = stringPreferencesKey("klvw_watch_items_json")
@@ -97,6 +98,9 @@ class SettingsPreferences @Inject constructor(
         val LOCK_IMAGE_TIMER_INTERVAL_MIN = intPreferencesKey("lock_image_timer_interval_min")
         val LOCK_VIDEO_TIMER_ENABLED = booleanPreferencesKey("lock_video_timer_enabled")
         val LOCK_VIDEO_TIMER_INTERVAL_MIN = intPreferencesKey("lock_video_timer_interval_min")
+        // Aer auto-lock settings
+        val AER_UNMOUNT_ON_LOCK = booleanPreferencesKey("aer_unmount_on_lock")
+        val AER_AUTO_UNMOUNT_MINUTES = intPreferencesKey("aer_auto_unmount_minutes")
     }
 
     // Raw flows — distinctUntilChanged so writes to unrelated keys don't trigger re-emission
@@ -152,6 +156,7 @@ class SettingsPreferences @Inject constructor(
     val quickSetLockStaticUri: Flow<String?> = context.dataStore.data.map { it[Keys.QUICK_SET_LOCK_STATIC_URI] }.distinctUntilChanged()
     val quickSetWatchPresetId: Flow<String?> = context.dataStore.data.map { it[Keys.QUICK_SET_WATCH_PRESET_ID] }.distinctUntilChanged()
     val timerUnlockNotification: Flow<Boolean> = context.dataStore.data.map { it[Keys.TIMER_UNLOCK_NOTIFICATION] ?: false }.distinctUntilChanged()
+    val timerNotificationOnlyWhenRunning: Flow<Boolean> = context.dataStore.data.map { it[Keys.TIMER_NOTIFICATION_ONLY_WHEN_RUNNING] ?: false }.distinctUntilChanged()
     val pauseTimersOnGlobalOff: Flow<Boolean> = context.dataStore.data.map { it[Keys.PAUSE_TIMERS_ON_GLOBAL_OFF] ?: false }.distinctUntilChanged()
     val globalOffPausedTimers: Flow<Set<String>> = context.dataStore.data.map { prefs ->
         prefs[Keys.GLOBAL_OFF_PAUSED_TIMERS]?.split(",")?.filter { it.isNotEmpty() }?.toSet() ?: emptySet()
@@ -169,6 +174,8 @@ class SettingsPreferences @Inject constructor(
     val lockVideoTimerEnabled: Flow<Boolean> = context.dataStore.data.map { it[Keys.LOCK_VIDEO_TIMER_ENABLED] ?: false }.distinctUntilChanged()
     val lockVideoTimerIntervalMin: Flow<Int> = context.dataStore.data.map { it[Keys.LOCK_VIDEO_TIMER_INTERVAL_MIN] ?: 60 }.distinctUntilChanged()
     val pujieWatchFacesJson: Flow<String> = context.dataStore.data.map { it[Keys.PUJIE_WATCH_FACES_JSON] ?: "[]" }.distinctUntilChanged()
+    val aerUnmountOnLock: Flow<Boolean> = context.dataStore.data.map { it[Keys.AER_UNMOUNT_ON_LOCK] ?: false }.distinctUntilChanged()
+    val aerAutoUnmountMinutes: Flow<Int> = context.dataStore.data.map { it[Keys.AER_AUTO_UNMOUNT_MINUTES] ?: 0 }.distinctUntilChanged()
 
     // Long-lived scope backed by the singleton's lifetime — safe because this is a @Singleton
     private val stateScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -417,6 +424,10 @@ class SettingsPreferences @Inject constructor(
         context.dataStore.edit { it[Keys.TIMER_UNLOCK_NOTIFICATION] = enabled }
     }
 
+    suspend fun setTimerNotificationOnlyWhenRunning(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.TIMER_NOTIFICATION_ONLY_WHEN_RUNNING] = enabled }
+    }
+
     suspend fun setPauseTimersOnGlobalOff(enabled: Boolean) {
         context.dataStore.edit { it[Keys.PAUSE_TIMERS_ON_GLOBAL_OFF] = enabled }
     }
@@ -460,6 +471,14 @@ class SettingsPreferences @Inject constructor(
 
     suspend fun setPujieWatchFacesJson(json: String) {
         context.dataStore.edit { it[Keys.PUJIE_WATCH_FACES_JSON] = json }
+    }
+
+    suspend fun setAerUnmountOnLock(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.AER_UNMOUNT_ON_LOCK] = enabled }
+    }
+
+    suspend fun setAerAutoUnmountMinutes(minutes: Int) {
+        context.dataStore.edit { it[Keys.AER_AUTO_UNMOUNT_MINUTES] = minutes }
     }
 
     suspend fun setDefaultFolderUri(target: String, mediaType: String, uri: String?) {

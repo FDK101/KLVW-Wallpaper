@@ -5,6 +5,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -13,6 +17,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.VideoFile
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -23,11 +29,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.klvw.wallpaper.aer.AerFolder
 import com.klvw.wallpaper.data.db.FolderEntity
 import com.klvw.wallpaper.data.model.FolderType
 import com.klvw.wallpaper.ui.theme.SurfaceGlass
 import com.klvw.wallpaper.ui.viewmodel.WallpaperViewModel
 import com.klvw.wallpaper.util.PermissionUtils
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -38,6 +47,7 @@ fun FolderManagerScreen(viewModel: WallpaperViewModel) {
     val context = LocalContext.current
 
     var addingType by remember { mutableStateOf<FolderType?>(null) }
+    var addingAerType by remember { mutableStateOf<FolderType?>(null) }
 
     val folderPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -47,6 +57,18 @@ fun FolderManagerScreen(viewModel: WallpaperViewModel) {
             addingType?.let { type -> viewModel.addFolder(picked, type) }
             addingType = null
         }
+    }
+
+    if (addingAerType != null) {
+        AerFolderPickerDialog(
+            type = addingAerType!!,
+            viewModel = viewModel,
+            onSelect = { aerFolder ->
+                viewModel.addAerFolder(aerFolder, addingAerType!!)
+                addingAerType = null
+            },
+            onDismiss = { addingAerType = null }
+        )
     }
 
     Column(
@@ -70,6 +92,21 @@ fun FolderManagerScreen(viewModel: WallpaperViewModel) {
                 icon = Icons.Default.VideoFile,
                 modifier = Modifier.weight(1f),
                 onClick = { addingType = FolderType.VIDEO; folderPicker.launch(null) }
+            )
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+            AddFolderButton(
+                label = "Add Aer Image",
+                icon = Icons.Default.Lock,
+                modifier = Modifier.weight(1f),
+                onClick = { addingAerType = FolderType.IMAGE }
+            )
+            AddFolderButton(
+                label = "Add Aer Video",
+                icon = Icons.Default.Lock,
+                modifier = Modifier.weight(1f),
+                onClick = { addingAerType = FolderType.VIDEO }
             )
         }
 
@@ -263,6 +300,7 @@ private fun FolderSection(
 @Composable
 private fun FolderItem(folder: FolderEntity, onRemove: () -> Unit) {
     val dateFormat = remember { SimpleDateFormat("MMM d, yyyy", Locale.getDefault()) }
+    val isAer = folder.uri.startsWith("klvw-aer://")
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -272,7 +310,11 @@ private fun FolderItem(folder: FolderEntity, onRemove: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
-            if (folder.type == FolderType.IMAGE) Icons.Default.Image else Icons.Default.VideoFile,
+            when {
+                isAer -> Icons.Default.Lock
+                folder.type == FolderType.IMAGE -> Icons.Default.Image
+                else -> Icons.Default.VideoFile
+            },
             contentDescription = null,
             tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(24.dp)
@@ -282,7 +324,8 @@ private fun FolderItem(folder: FolderEntity, onRemove: () -> Unit) {
             Text(folder.displayName, style = MaterialTheme.typography.bodyMedium,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                "Added ${dateFormat.format(Date(folder.addedAt))}",
+                if (isAer) "Aer private storage"
+                else "Added ${dateFormat.format(Date(folder.addedAt))}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -292,4 +335,154 @@ private fun FolderItem(folder: FolderEntity, onRemove: () -> Unit) {
                 tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
         }
     }
+}
+
+@Composable
+private fun AerFolderPickerDialog(
+    type: FolderType,
+    viewModel: WallpaperViewModel,
+    onSelect: (AerFolder) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var currentRelPath by remember { mutableStateOf<String?>(null) }
+    var pathComponents by remember { mutableStateOf<List<String>>(emptyList()) }
+    var subfolders by remember { mutableStateOf<List<AerFolder>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(currentRelPath) {
+        loading = true
+        subfolders = withContext(Dispatchers.IO) { viewModel.getAvailableAerFolders(currentRelPath) }
+        loading = false
+    }
+
+    val currentFolder = AerFolder(
+        name = pathComponents.lastOrNull() ?: "Aer Root",
+        relPath = currentRelPath ?: ""
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Add Aer ${if (type == FolderType.IMAGE) "Image" else "Video"} Folder")
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "Aer Root",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (pathComponents.isEmpty()) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier.clickable(enabled = pathComponents.isNotEmpty()) {
+                            currentRelPath = null
+                            pathComponents = emptyList()
+                        }
+                    )
+                    pathComponents.forEachIndexed { idx, part ->
+                        Text(
+                            " / ",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        val isLast = idx == pathComponents.lastIndex
+                        Text(
+                            part,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (isLast) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.tertiary,
+                            modifier = Modifier.clickable(enabled = !isLast) {
+                                val newComponents = pathComponents.take(idx + 1)
+                                pathComponents = newComponents
+                                currentRelPath = newComponents.joinToString("/")
+                            }
+                        )
+                    }
+                }
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { onSelect(currentFolder) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(Icons.Default.Lock, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "Select \"${currentFolder.name}\"",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                if (loading) {
+                    Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    }
+                } else if (subfolders.isEmpty()) {
+                    Text(
+                        "No subfolders here",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    HorizontalDivider()
+                    LazyColumn(
+                        modifier = Modifier.heightIn(max = 300.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        items(subfolders) { folder ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        pathComponents = pathComponents + folder.name
+                                        currentRelPath = folder.relPath
+                                    }
+                                    .padding(vertical = 10.dp, horizontal = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Folder,
+                                    null,
+                                    modifier = Modifier.size(20.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    folder.name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.weight(1f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Icon(
+                                    Icons.Default.KeyboardArrowRight,
+                                    null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (pathComponents.isNotEmpty()) {
+                    TextButton(onClick = {
+                        val newComponents = pathComponents.dropLast(1)
+                        pathComponents = newComponents
+                        currentRelPath = newComponents.joinToString("/").ifEmpty { null }
+                    }) { Text("Back") }
+                }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        }
+    )
 }

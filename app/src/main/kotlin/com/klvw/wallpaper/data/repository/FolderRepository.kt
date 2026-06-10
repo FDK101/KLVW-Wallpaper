@@ -3,6 +3,10 @@ package com.klvw.wallpaper.data.repository
 import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.webkit.MimeTypeMap
+import com.klvw.wallpaper.aer.AerDocumentsProvider
+import com.klvw.wallpaper.aer.AerFolder
+import com.klvw.wallpaper.aer.AerUri
 import com.klvw.wallpaper.data.db.FolderDao
 import com.klvw.wallpaper.data.db.FolderEntity
 import com.klvw.wallpaper.data.model.FolderType
@@ -11,6 +15,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
+import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -30,6 +35,13 @@ class FolderRepository @Inject constructor(
         return folderDao.insert(FolderEntity(uri = uri.toString(), displayName = displayName, type = type))
     }
 
+    suspend fun addAerFolder(aerFolder: AerFolder, type: FolderType): Long {
+        val uri = AerUri.of(aerFolder.relPath)
+        val existing = folderDao.findByUri(uri)
+        if (existing != null) return existing.id
+        return folderDao.insert(FolderEntity(uri = uri, displayName = aerFolder.name, type = type))
+    }
+
     suspend fun removeFolder(folder: FolderEntity) = folderDao.delete(folder)
 
     suspend fun touchFolder(id: Long) = folderDao.updateLastUsed(id)
@@ -46,8 +58,23 @@ class FolderRepository @Inject constructor(
         }
     }
 
+    fun getAerFolders(relPath: String? = null): List<AerFolder> {
+        val aerRoot = File(context.filesDir, "aer")
+        val dir = if (relPath.isNullOrEmpty()) aerRoot else File(aerRoot, relPath)
+        if (!dir.exists()) return emptyList()
+        return dir.listFiles()
+            ?.filter { it.isDirectory && !it.name.startsWith(".") }
+            ?.sortedBy { it.name }
+            ?.map { subdir ->
+                val rel = subdir.relativeTo(aerRoot).path.replace('\\', '/')
+                AerFolder(subdir.name, rel)
+            }
+            ?: emptyList()
+    }
+
     suspend fun getItemsFromFolder(folderUri: String, type: FolderType): List<WallpaperItem> =
         withContext(Dispatchers.IO) {
+            if (folderUri.startsWith("klvw-aer://")) return@withContext getItemsFromAerFolder(folderUri, type)
             val results = mutableListOf<WallpaperItem>()
             try {
                 val rootUri = Uri.parse(folderUri)
@@ -56,6 +83,41 @@ class FolderRepository @Inject constructor(
             } catch (_: Exception) {}
             results
         }
+
+    private fun getItemsFromAerFolder(folderUri: String, type: FolderType): List<WallpaperItem> {
+        val relPath = AerUri.relPath(folderUri)
+        val aerRoot = File(context.filesDir, "aer")
+        val dir = if (relPath.isNullOrEmpty()) aerRoot else File(aerRoot, relPath)
+        if (!dir.exists()) return emptyList()
+        val mimePrefix = if (type == FolderType.IMAGE) "image/" else "video/"
+        val results = mutableListOf<WallpaperItem>()
+        fun scan(d: File, depth: Int) {
+            d.listFiles()
+                ?.filter { !it.name.startsWith(".") }
+                ?.sortedWith(compareBy({ !it.isDirectory }, { it.name }))?.forEach { f ->
+                when {
+                    f.isDirectory && depth > 0 -> scan(f, depth - 1)
+                    f.isFile -> {
+                        val ext = f.extension.lowercase()
+                        val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: return@forEach
+                        if (mime.startsWith(mimePrefix)) {
+                            val docId = f.relativeTo(aerRoot).path.replace('\\', '/')
+                            val contentUri = DocumentsContract.buildDocumentUri(AerDocumentsProvider.AUTHORITY, docId)
+                            results += WallpaperItem(
+                                uri = contentUri,
+                                type = type,
+                                displayName = f.name,
+                                folderUri = folderUri,
+                                lastModified = f.lastModified()
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        scan(dir, 2)
+        return results
+    }
 
     private fun scanDocumentTree(
         treeUri: Uri,

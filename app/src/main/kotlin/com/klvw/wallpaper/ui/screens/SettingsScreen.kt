@@ -32,6 +32,10 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.SingletonImageLoader
+import com.klvw.wallpaper.aer.AerLockStore
+import com.klvw.wallpaper.aer.AerMountActivity
+import com.klvw.wallpaper.aer.AerShell
+import com.klvw.wallpaper.aer.ui.AerActivity
 import com.klvw.wallpaper.tile.KLVWPopupViewModel
 import com.klvw.wallpaper.tile.PopupItem
 import com.klvw.wallpaper.tile.PujieWatchFacePreset
@@ -145,6 +149,10 @@ fun SettingsScreen(viewModel: WallpaperViewModel, popupViewModel: KLVWPopupViewM
 
         SettingsSection(title = "KLVW Watch") {
             KLVWWatchSection(popupViewModel = popupViewModel)
+        }
+
+        SettingsSection(title = "Aer Private Storage") {
+            AerStorageSection(popupViewModel)
         }
 
         SettingsSection(title = "Popup Appearance") {
@@ -1009,6 +1017,7 @@ private fun ColorPickerRow(
 @Composable
 private fun TimerNotificationSection(popupViewModel: KLVWPopupViewModel) {
     val enabled by popupViewModel.timerUnlockNotification.collectAsStateWithLifecycle()
+    val onlyWhenRunning by popupViewModel.timerNotificationOnlyWhenRunning.collectAsStateWithLifecycle()
 
     Column(
         modifier = Modifier
@@ -1039,6 +1048,29 @@ private fun TimerNotificationSection(popupViewModel: KLVWPopupViewModel) {
                 onCheckedChange = { popupViewModel.setTimerUnlockNotification(it) },
                 modifier = Modifier.height(24.dp)
             )
+        }
+        if (enabled) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 34.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Only show when running", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "Hide notification while all timers are paused.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = onlyWhenRunning,
+                    onCheckedChange = { popupViewModel.setTimerNotificationOnlyWhenRunning(it) },
+                    modifier = Modifier.height(24.dp)
+                )
+            }
         }
     }
 }
@@ -1474,5 +1506,138 @@ private fun WatchSideloadCard(expanded: Boolean, onToggle: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall)
             }
         }
+    }
+}
+
+@Composable
+private fun AerStorageSection(popupViewModel: KLVWPopupViewModel) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var isMounted by remember { mutableStateOf(AerLockStore.isMounted) }
+    val aerUnmountOnLock by popupViewModel.aerUnmountOnLock.collectAsStateWithLifecycle()
+    val aerAutoUnmountMinutes by popupViewModel.aerAutoUnmountMinutes.collectAsStateWithLifecycle()
+    var showAutoUnmountDialog by remember { mutableStateOf(false) }
+    var autoUnmountInput by remember { mutableStateOf("") }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) isMounted = AerLockStore.isMounted
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(
+                if (isMounted) Icons.Default.LockOpen else Icons.Default.Lock,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = if (isMounted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Status", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    if (isMounted) "Mounted — external apps can see files" else "Unmounted — private from external apps",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (isMounted) {
+                OutlinedButton(onClick = {
+                    AerLockStore.unmount(context)
+                    isMounted = false
+                }) { Text("Unmount") }
+            } else {
+                Button(onClick = {
+                    context.startActivity(Intent(context, AerMountActivity::class.java))
+                }) { Text("Mount") }
+            }
+        }
+        HorizontalDivider(thickness = 0.5.dp)
+        SettingToggle(
+            icon = Icons.Default.ScreenLockPortrait,
+            title = "Unmount on device lock",
+            subtitle = "Lock Aer automatically when the screen turns off",
+            checked = aerUnmountOnLock,
+            onCheckedChange = { popupViewModel.setAerUnmountOnLock(it) }
+        )
+        HorizontalDivider(thickness = 0.5.dp)
+        SettingAction(
+            icon = Icons.Default.Timer,
+            title = "Unmount after",
+            subtitle = if (aerAutoUnmountMinutes > 0)
+                "Automatically locks after $aerAutoUnmountMinutes minute${if (aerAutoUnmountMinutes != 1) "s" else ""}"
+            else
+                "Disabled — tap to set a timeout",
+            onClick = {
+                autoUnmountInput = if (aerAutoUnmountMinutes > 0) aerAutoUnmountMinutes.toString() else ""
+                showAutoUnmountDialog = true
+            }
+        )
+        HorizontalDivider(thickness = 0.5.dp)
+        SettingAction(
+            icon = Icons.Default.FolderOpen,
+            title = "Open in Files App",
+            subtitle = "Browse and play media in the system file manager",
+            onClick = { AerShell.open(context) }
+        )
+        HorizontalDivider(thickness = 0.5.dp)
+        SettingAction(
+            icon = Icons.Default.FolderSpecial,
+            title = "Manage Aer Storage",
+            subtitle = "Import files and assign images as wallpapers",
+            onClick = { context.startActivity(Intent(context, AerActivity::class.java)) }
+        )
+        HorizontalDivider(thickness = 0.5.dp)
+        Text(
+            "Files in Aer are stored in app-private storage. Open in Files App to browse with the system file manager and play videos with the default player. Use Manage to import media.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            lineHeight = MaterialTheme.typography.bodySmall.lineHeight
+        )
+    }
+
+    if (showAutoUnmountDialog) {
+        AlertDialog(
+            onDismissRequest = { showAutoUnmountDialog = false },
+            title = { Text("Unmount after") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Enter timeout in minutes (0 or blank to disable).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = autoUnmountInput,
+                        onValueChange = { if (it.all { c -> c.isDigit() } && it.length <= 4) autoUnmountInput = it },
+                        label = { Text("Minutes") },
+                        singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val minutes = autoUnmountInput.toIntOrNull() ?: 0
+                    popupViewModel.setAerAutoUnmountMinutes(minutes)
+                    showAutoUnmountDialog = false
+                }) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAutoUnmountDialog = false }) { Text("Cancel") }
+            }
+        )
     }
 }

@@ -17,6 +17,7 @@ coroutines = "1.9.0"
 wear-compose = "1.4.0"
 play-services-wearable = "18.0.0"
 fragment = "1.6.2"
+biometric = "1.1.0"
 
 [libraries]
 # AndroidX Core
@@ -69,6 +70,9 @@ kotlinx-coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "ko
 
 # Fragment (required to satisfy InvalidFragmentVersionForActivityResult lint check in wear module)
 androidx-fragment-ktx = { group = "androidx.fragment", name = "fragment-ktx", version.ref = "fragment" }
+
+# Biometric
+androidx-biometric = { group = "androidx.biometric", name = "biometric", version.ref = "biometric" }
 
 # Wear OS
 wear-compose-material = { group = "androidx.wear.compose", name = "compose-material", version.ref = "wear-compose" }

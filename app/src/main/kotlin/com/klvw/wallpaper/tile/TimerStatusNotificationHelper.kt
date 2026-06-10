@@ -143,6 +143,13 @@ object TimerStatusNotificationHelper {
             }
         }
         if (enabledKeys.isEmpty()) return
+        if (prefs.timerNotificationOnlyWhenRunning.first()) {
+            val allPaused = enabledKeys.all { timerManager.paused.value[it] == true }
+            if (allPaused) {
+                NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID)
+                return
+            }
+        }
         show(context, enabledKeys, timerManager.paused.value, timerManager.nextFireTimes.value)
     }
 

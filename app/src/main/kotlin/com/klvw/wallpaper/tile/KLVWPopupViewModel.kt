@@ -16,6 +16,7 @@ import com.klvw.wallpaper.data.repository.FolderRepository
 import com.klvw.wallpaper.data.repository.StaticImageRepository
 import com.klvw.wallpaper.data.repository.WallpaperRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -27,6 +28,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class KLVWPopupViewModel @Inject constructor(
+    @ApplicationContext private val appContext: Context,
     private val prefs: SettingsPreferences,
     private val folderRepository: FolderRepository,
     private val wallpaperRepository: WallpaperRepository,
@@ -116,6 +118,8 @@ class KLVWPopupViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val timerUnlockNotification: StateFlow<Boolean> = prefs.timerUnlockNotification
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val timerNotificationOnlyWhenRunning: StateFlow<Boolean> = prefs.timerNotificationOnlyWhenRunning
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val pauseTimersOnGlobalOff: StateFlow<Boolean> = prefs.pauseTimersOnGlobalOff
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val homeImageTimerEnabled: StateFlow<Boolean> = prefs.homeImageTimerEnabled
@@ -198,7 +202,16 @@ class KLVWPopupViewModel @Inject constructor(
     fun setQuickSetLockStaticUri(uri: String?) { viewModelScope.launch { prefs.setQuickSetLockStaticUri(uri) } }
     fun setQuickSetWatchPresetId(id: String?) { viewModelScope.launch { prefs.setQuickSetWatchPresetId(id) } }
     fun setTimerUnlockNotification(enabled: Boolean) { viewModelScope.launch { prefs.setTimerUnlockNotification(enabled) } }
+    fun setTimerNotificationOnlyWhenRunning(enabled: Boolean) { viewModelScope.launch { prefs.setTimerNotificationOnlyWhenRunning(enabled) } }
     fun setPauseTimersOnGlobalOff(enabled: Boolean) { viewModelScope.launch { prefs.setPauseTimersOnGlobalOff(enabled) } }
+    // Aer auto-lock settings
+    val aerUnmountOnLock: StateFlow<Boolean> = prefs.aerUnmountOnLock
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val aerAutoUnmountMinutes: StateFlow<Int> = prefs.aerAutoUnmountMinutes
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+    fun setAerUnmountOnLock(enabled: Boolean) { viewModelScope.launch { prefs.setAerUnmountOnLock(enabled) } }
+    fun setAerAutoUnmountMinutes(minutes: Int) { viewModelScope.launch { prefs.setAerAutoUnmountMinutes(minutes) } }
+
     // KLVW Watch companion
     val watchItemsJson: StateFlow<String> = prefs.klvwWatchItemsJson
         .stateIn(viewModelScope, SharingStarted.Eagerly, "[]")

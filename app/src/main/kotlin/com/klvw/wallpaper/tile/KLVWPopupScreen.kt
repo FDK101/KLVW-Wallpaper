@@ -37,6 +37,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.size.Scale
+import com.klvw.wallpaper.aer.AerShell
 import com.klvw.wallpaper.data.db.FolderEntity
 import com.klvw.wallpaper.data.model.FolderType
 import com.klvw.wallpaper.data.model.WallpaperItem
@@ -169,7 +170,9 @@ fun KLVWPopupScreen(
                         )
                     } else {
                         val onItemClick: (PopupItem) -> Unit = onItemClick@{ item ->
-                            if (!appEnabled && item.actionType != POPUP_ACTION_ICON_COLOR) return@onItemClick
+                            if (!appEnabled &&
+                                item.actionType != POPUP_ACTION_ICON_COLOR &&
+                                item.actionType != POPUP_ACTION_AER_MOUNT) return@onItemClick
                             when (item.actionType) {
                                 POPUP_ACTION_FOLDER_SELECT     -> pendingFolderItem = item
                                 POPUP_ACTION_FOLDER_SELECT_ALL -> showFolderManagerDialog = true
@@ -178,6 +181,7 @@ fun KLVWPopupScreen(
                                 POPUP_ACTION_TIMER             -> showTimerDialog = true
                                 POPUP_ACTION_DISPLAY_CONTROL   -> showDisplayControlDialog = true
                                 POPUP_ACTION_PUJIE_WATCH_FACE  -> showPujiePickerDialog = true
+                                POPUP_ACTION_AER_MOUNT         -> AerShell.open(context)
                                 else -> scope.launch { viewModel.executeItem(item, context) }
                             }
                         }
@@ -496,6 +500,7 @@ private fun FolderManagerOverlay(
                 } else {
                     folders.forEach { folder ->
                         val isSelected = folder.uri == currentDefaultUri
+                        val isAer = folder.uri.startsWith("klvw-aer://")
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -510,10 +515,13 @@ private fun FolderManagerOverlay(
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Icon(
-                                if (isSelected) Icons.Default.CheckCircle else Icons.Default.Folder,
+                                when {
+                                    isSelected -> Icons.Default.CheckCircle
+                                    isAer -> Icons.Default.Lock
+                                    else -> Icons.Default.Folder
+                                },
                                 contentDescription = null,
-                                tint = if (isSelected) MaterialTheme.colorScheme.primary
-                                       else secondaryTextColor,
+                                tint = if (isSelected) MaterialTheme.colorScheme.primary else secondaryTextColor,
                                 modifier = Modifier.size(18.dp)
                             )
                             Text(
@@ -772,9 +780,9 @@ private fun FileSelectOverlay(
     }
 
     LaunchedEffect(selectedFolder) {
-        val folder = selectedFolder ?: run { mediaItems = emptyList(); return@LaunchedEffect }
+        val sel = selectedFolder ?: run { mediaItems = emptyList(); return@LaunchedEffect }
         loading = true
-        mediaItems = withContext(Dispatchers.IO) { viewModel.getItemsFromFolder(folder.uri, mediaType) }
+        mediaItems = withContext(Dispatchers.IO) { viewModel.getItemsFromFolder(sel.uri, mediaType) }
         loading = false
     }
 
@@ -864,7 +872,11 @@ private fun FileSelectOverlay(
                                     onClick = { if (folders.isNotEmpty()) folderMenuExpanded = true },
                                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                                 ) {
-                                    Icon(Icons.Default.Folder, null, Modifier.size(16.dp))
+                                    Icon(
+                                        if (selectedFolder?.uri?.startsWith("klvw-aer://") == true) Icons.Default.Lock
+                                        else Icons.Default.Folder,
+                                        null, Modifier.size(16.dp)
+                                    )
                                     Spacer(Modifier.width(6.dp))
                                     Text(
                                         selectedFolder?.displayName ?: "No folders",
@@ -880,6 +892,9 @@ private fun FileSelectOverlay(
                                     folders.forEach { folder ->
                                         DropdownMenuItem(
                                             text = { Text(folder.displayName) },
+                                            leadingIcon = if (folder.uri.startsWith("klvw-aer://")) {
+                                                { Icon(Icons.Default.Lock, null, Modifier.size(16.dp)) }
+                                            } else null,
                                             onClick = { selectedFolder = folder; folderMenuExpanded = false }
                                         )
                                     }
@@ -1280,6 +1295,7 @@ private fun PopupItem.actionIcon(): ImageVector = when (actionType) {
     POPUP_ACTION_FOLDER_SELECT_ALL -> Icons.Default.FolderSpecial
     POPUP_ACTION_DISPLAY_CONTROL   -> Icons.Default.LockOpen
     POPUP_ACTION_PUJIE_WATCH_FACE  -> Icons.Default.Watch
+    POPUP_ACTION_AER_MOUNT         -> Icons.Default.Lock
     else                           -> Icons.Default.Settings
 }
 
@@ -1297,6 +1313,7 @@ private fun PopupItem.subtitle(): String {
         POPUP_ACTION_FOLDER_SELECT_ALL -> "All Default Folders"
         POPUP_ACTION_DISPLAY_CONTROL   -> "Display Control"
         POPUP_ACTION_PUJIE_WATCH_FACE  -> "Pujie Watch Faces"
+        POPUP_ACTION_AER_MOUNT         -> "Mount Aer Storage"
         else                           -> ""
     }
 }

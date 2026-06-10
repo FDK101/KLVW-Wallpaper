@@ -3,7 +3,6 @@ package com.klvw.wallpaper.service.renderer
 import android.graphics.Bitmap
 import android.util.Log
 import android.view.Surface
-import java.io.ByteArrayOutputStream
 
 object VulkanBridge {
     private const val TAG = "VulkanBridge"
@@ -35,8 +34,6 @@ object VulkanBridge {
     fun setImage(bitmap: Bitmap): Boolean {
         if (!available) return false
         return try {
-            val stream = ByteArrayOutputStream()
-            // Convert to RGBA byte array
             val width = bitmap.width
             val height = bitmap.height
             val pixels = IntArray(width * height)

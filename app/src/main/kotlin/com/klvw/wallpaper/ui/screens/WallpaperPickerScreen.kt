@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -66,9 +67,11 @@ fun WallpaperPickerScreen(viewModel: WallpaperViewModel) {
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri?.let { picked ->
-            context.contentResolver.takePersistableUriPermission(
-                picked, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
-            )
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    picked, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: SecurityException) {}
             val displayName = picked.lastPathSegment?.substringAfterLast('/') ?: "Image"
             when (state.mediaTab) {
                 MediaTab.STATIC -> viewModel.addStaticImage(picked, displayName)
@@ -166,14 +169,16 @@ fun WallpaperPickerScreen(viewModel: WallpaperViewModel) {
 
         // Folder selector — only for Image and Video tabs
         if (state.mediaTab != MediaTab.STATIC && folders.isNotEmpty()) {
+            val selUri = state.selectedFolderUri
             val buttonLabel = when {
                 folders.size == 1 -> folders.first().displayName
-                state.selectedFolderUri == null -> "All Folders"
-                else -> folders.find { it.uri == state.selectedFolderUri }?.displayName ?: "Select Folder"
+                selUri == null -> "All Folders"
+                else -> folders.find { it.uri == selUri }?.displayName ?: "Select Folder"
             }
+            val hasMultiple = folders.size > 1
             Box(modifier = Modifier.fillMaxWidth()) {
                 OutlinedButton(
-                    onClick = { if (folders.size > 1) folderMenuExpanded = true },
+                    onClick = { if (hasMultiple) folderMenuExpanded = true },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)
@@ -185,7 +190,7 @@ fun WallpaperPickerScreen(viewModel: WallpaperViewModel) {
                         overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.bodyMedium
                     )
-                    if (folders.size > 1) {
+                    if (hasMultiple) {
                         Spacer(Modifier.width(4.dp))
                         Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(18.dp))
                     }
@@ -197,7 +202,7 @@ fun WallpaperPickerScreen(viewModel: WallpaperViewModel) {
                     DropdownMenuItem(
                         text = { Text("All Folders") },
                         onClick = { viewModel.selectFolder(null); folderMenuExpanded = false },
-                        leadingIcon = if (state.selectedFolderUri == null) {
+                        leadingIcon = if (selUri == null) {
                             { Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp)) }
                         } else null
                     )
@@ -206,9 +211,11 @@ fun WallpaperPickerScreen(viewModel: WallpaperViewModel) {
                         DropdownMenuItem(
                             text = { Text(folder.displayName, maxLines = 2, overflow = TextOverflow.Ellipsis) },
                             onClick = { viewModel.selectFolder(folder.uri); folderMenuExpanded = false },
-                            leadingIcon = if (state.selectedFolderUri == folder.uri) {
-                                { Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp)) }
-                            } else null
+                            leadingIcon = when {
+                                selUri == folder.uri -> { { Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp)) } }
+                                folder.uri.startsWith("klvw-aer://") -> { { Icon(Icons.Default.Lock, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp)) } }
+                                else -> null
+                            }
                         )
                     }
                 }
