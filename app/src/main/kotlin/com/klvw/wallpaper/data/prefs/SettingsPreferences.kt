@@ -101,6 +101,17 @@ class SettingsPreferences @Inject constructor(
         // Aer auto-lock settings
         val AER_UNMOUNT_ON_LOCK = booleanPreferencesKey("aer_unmount_on_lock")
         val AER_AUTO_UNMOUNT_MINUTES = intPreferencesKey("aer_auto_unmount_minutes")
+        // Pause on Lock (P.o.L) — per-timer setting
+        val HOME_IMAGE_TIMER_POL = booleanPreferencesKey("home_image_timer_pol")
+        val HOME_VIDEO_TIMER_POL = booleanPreferencesKey("home_video_timer_pol")
+        val LOCK_IMAGE_TIMER_POL = booleanPreferencesKey("lock_image_timer_pol")
+        val LOCK_VIDEO_TIMER_POL = booleanPreferencesKey("lock_video_timer_pol")
+        val POL_PAUSED_TIMERS = stringPreferencesKey("pol_paused_timers")
+        val POL_PAUSED_FIRE_TIMES = stringPreferencesKey("pol_paused_fire_times")
+        // All currently paused timers (P.o.L + manual/notification) — survives process restart.
+        val GENERAL_PAUSED_TIMERS = stringPreferencesKey("general_paused_timers")
+        val POPUP_TIMER_HIGHLIGHT_COLOR = stringPreferencesKey("popup_timer_highlight_color")
+        val POPUP_TIMER_BORDER_COLOR = stringPreferencesKey("popup_timer_border_color")
     }
 
     // Raw flows — distinctUntilChanged so writes to unrelated keys don't trigger re-emission
@@ -133,6 +144,8 @@ class SettingsPreferences @Inject constructor(
     val popupBgColor: Flow<String?> = context.dataStore.data.map { it[Keys.POPUP_BG_COLOR] }.distinctUntilChanged()
     val popupPrimaryTextColor: Flow<String?> = context.dataStore.data.map { it[Keys.POPUP_PRIMARY_TEXT_COLOR] }.distinctUntilChanged()
     val popupSecondaryTextColor: Flow<String?> = context.dataStore.data.map { it[Keys.POPUP_SECONDARY_TEXT_COLOR] }.distinctUntilChanged()
+    val popupTimerHighlightColor: Flow<String?> = context.dataStore.data.map { it[Keys.POPUP_TIMER_HIGHLIGHT_COLOR] }.distinctUntilChanged()
+    val popupTimerBorderColor: Flow<String?> = context.dataStore.data.map { it[Keys.POPUP_TIMER_BORDER_COLOR] }.distinctUntilChanged()
     val popupLayout: Flow<String> = context.dataStore.data.map { it[Keys.POPUP_LAYOUT] ?: "list" }.distinctUntilChanged()
     val popupGridColumns: Flow<Int> = context.dataStore.data.map { it[Keys.POPUP_GRID_COLUMNS] ?: 3 }.distinctUntilChanged()
     val popupWidthFraction: Flow<Float> = context.dataStore.data.map { it[Keys.POPUP_WIDTH_FRACTION] ?: 0.92f }.distinctUntilChanged()
@@ -176,6 +189,26 @@ class SettingsPreferences @Inject constructor(
     val pujieWatchFacesJson: Flow<String> = context.dataStore.data.map { it[Keys.PUJIE_WATCH_FACES_JSON] ?: "[]" }.distinctUntilChanged()
     val aerUnmountOnLock: Flow<Boolean> = context.dataStore.data.map { it[Keys.AER_UNMOUNT_ON_LOCK] ?: false }.distinctUntilChanged()
     val aerAutoUnmountMinutes: Flow<Int> = context.dataStore.data.map { it[Keys.AER_AUTO_UNMOUNT_MINUTES] ?: 0 }.distinctUntilChanged()
+    val homeImageTimerPauseOnLock: Flow<Boolean> = context.dataStore.data.map { it[Keys.HOME_IMAGE_TIMER_POL] ?: false }.distinctUntilChanged()
+    val homeVideoTimerPauseOnLock: Flow<Boolean> = context.dataStore.data.map { it[Keys.HOME_VIDEO_TIMER_POL] ?: false }.distinctUntilChanged()
+    val lockImageTimerPauseOnLock: Flow<Boolean> = context.dataStore.data.map { it[Keys.LOCK_IMAGE_TIMER_POL] ?: false }.distinctUntilChanged()
+    val lockVideoTimerPauseOnLock: Flow<Boolean> = context.dataStore.data.map { it[Keys.LOCK_VIDEO_TIMER_POL] ?: false }.distinctUntilChanged()
+    val polPausedTimers: Flow<Set<String>> = context.dataStore.data.map { prefs ->
+        prefs[Keys.POL_PAUSED_TIMERS]?.split(",")?.filter { it.isNotEmpty() }?.toSet() ?: emptySet()
+    }.distinctUntilChanged()
+
+    val polPausedFireTimes: Flow<Map<String, Long>> = context.dataStore.data.map { prefs ->
+        prefs[Keys.POL_PAUSED_FIRE_TIMES]?.split(",")?.filter { it.isNotEmpty() }
+            ?.mapNotNull { entry ->
+                val i = entry.lastIndexOf(':')
+                if (i > 0) entry.substring(0, i) to (entry.substring(i + 1).toLongOrNull() ?: return@mapNotNull null)
+                else null
+            }?.toMap() ?: emptyMap()
+    }.distinctUntilChanged()
+
+    val generalPausedTimers: Flow<Set<String>> = context.dataStore.data.map { prefs ->
+        prefs[Keys.GENERAL_PAUSED_TIMERS]?.split(",")?.filter { it.isNotEmpty() }?.toSet() ?: emptySet()
+    }.distinctUntilChanged()
 
     // Long-lived scope backed by the singleton's lifetime — safe because this is a @Singleton
     private val stateScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -326,6 +359,14 @@ class SettingsPreferences @Inject constructor(
 
     suspend fun setPopupSecondaryTextColor(hex: String?) {
         context.dataStore.edit { if (hex != null) it[Keys.POPUP_SECONDARY_TEXT_COLOR] = hex else it.remove(Keys.POPUP_SECONDARY_TEXT_COLOR) }
+    }
+
+    suspend fun setPopupTimerHighlightColor(hex: String?) {
+        context.dataStore.edit { if (hex != null) it[Keys.POPUP_TIMER_HIGHLIGHT_COLOR] = hex else it.remove(Keys.POPUP_TIMER_HIGHLIGHT_COLOR) }
+    }
+
+    suspend fun setPopupTimerBorderColor(hex: String?) {
+        context.dataStore.edit { if (hex != null) it[Keys.POPUP_TIMER_BORDER_COLOR] = hex else it.remove(Keys.POPUP_TIMER_BORDER_COLOR) }
     }
 
     suspend fun setPopupLayout(layout: String) {
@@ -479,6 +520,48 @@ class SettingsPreferences @Inject constructor(
 
     suspend fun setAerAutoUnmountMinutes(minutes: Int) {
         context.dataStore.edit { it[Keys.AER_AUTO_UNMOUNT_MINUTES] = minutes }
+    }
+
+    suspend fun setTimerPauseOnLock(key: String, enabled: Boolean) {
+        context.dataStore.edit {
+            when (key) {
+                "home_image" -> it[Keys.HOME_IMAGE_TIMER_POL] = enabled
+                "home_video" -> it[Keys.HOME_VIDEO_TIMER_POL] = enabled
+                "lock_image" -> it[Keys.LOCK_IMAGE_TIMER_POL] = enabled
+                "lock_video" -> it[Keys.LOCK_VIDEO_TIMER_POL] = enabled
+            }
+        }
+    }
+
+    suspend fun setPolPausedTimers(keys: Set<String>) {
+        context.dataStore.edit {
+            if (keys.isEmpty()) it.remove(Keys.POL_PAUSED_TIMERS)
+            else it[Keys.POL_PAUSED_TIMERS] = keys.joinToString(",")
+        }
+    }
+
+    suspend fun setPolPausedFireTimes(map: Map<String, Long>) {
+        context.dataStore.edit {
+            if (map.isEmpty()) it.remove(Keys.POL_PAUSED_FIRE_TIMES)
+            else it[Keys.POL_PAUSED_FIRE_TIMES] = map.entries.joinToString(",") { "${it.key}:${it.value}" }
+        }
+    }
+
+    suspend fun addGeneralPausedTimer(key: String) {
+        context.dataStore.edit { prefs ->
+            val current = prefs[Keys.GENERAL_PAUSED_TIMERS]?.split(",")?.filter { it.isNotEmpty() }?.toMutableSet() ?: mutableSetOf()
+            current.add(key)
+            prefs[Keys.GENERAL_PAUSED_TIMERS] = current.joinToString(",")
+        }
+    }
+
+    suspend fun removeGeneralPausedTimer(key: String) {
+        context.dataStore.edit { prefs ->
+            val current = prefs[Keys.GENERAL_PAUSED_TIMERS]?.split(",")?.filter { it.isNotEmpty() }?.toMutableSet() ?: mutableSetOf()
+            current.remove(key)
+            if (current.isEmpty()) prefs.remove(Keys.GENERAL_PAUSED_TIMERS)
+            else prefs[Keys.GENERAL_PAUSED_TIMERS] = current.joinToString(",")
+        }
     }
 
     suspend fun setDefaultFolderUri(target: String, mediaType: String, uri: String?) {

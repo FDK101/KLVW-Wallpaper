@@ -145,6 +145,7 @@ fun SettingsScreen(viewModel: WallpaperViewModel, popupViewModel: KLVWPopupViewM
         SettingsSection(title = "Wallpaper Timers") {
             TimerNotificationSection(popupViewModel = popupViewModel)
             TimerGlobalOffSection(popupViewModel = popupViewModel)
+            TimerPauseOnLockSection(popupViewModel = popupViewModel)
         }
 
         SettingsSection(title = "KLVW Watch") {
@@ -876,10 +877,13 @@ private fun PopupAppearanceSection(popupViewModel: KLVWPopupViewModel) {
     val bgHex by popupViewModel.popupBgColor.collectAsStateWithLifecycle()
     val primaryHex by popupViewModel.popupPrimaryTextColor.collectAsStateWithLifecycle()
     val secondaryHex by popupViewModel.popupSecondaryTextColor.collectAsStateWithLifecycle()
+    val timerHighlightHex by popupViewModel.popupTimerHighlightColor.collectAsStateWithLifecycle()
+    val timerBorderHex by popupViewModel.popupTimerBorderColor.collectAsStateWithLifecycle()
 
     val themeSurface = MaterialTheme.colorScheme.surface
     val themeOnSurface = MaterialTheme.colorScheme.onSurface
     val themeOnSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
+    val themePrimary = MaterialTheme.colorScheme.primary
 
     Column(
         modifier = Modifier
@@ -914,6 +918,20 @@ private fun PopupAppearanceSection(popupViewModel: KLVWPopupViewModel) {
             storedHex = secondaryHex,
             defaultColor = themeOnSurfaceVariant,
             onColorChange = { popupViewModel.setPopupSecondaryTextColor(it) }
+        )
+        HorizontalDivider(thickness = 0.5.dp)
+        ColorPickerRow(
+            label = "Timer Interval Highlight",
+            storedHex = timerHighlightHex,
+            defaultColor = themePrimary.copy(alpha = 0.35f),
+            onColorChange = { popupViewModel.setPopupTimerHighlightColor(it) }
+        )
+        HorizontalDivider(thickness = 0.5.dp)
+        ColorPickerRow(
+            label = "Timer Section Border",
+            storedHex = timerBorderHex,
+            defaultColor = Color.White.copy(alpha = 0.15f),
+            onColorChange = { popupViewModel.setPopupTimerBorderColor(it) }
         )
     }
 }
@@ -1108,6 +1126,62 @@ private fun TimerGlobalOffSection(popupViewModel: KLVWPopupViewModel) {
                 onCheckedChange = { popupViewModel.setPauseTimersOnGlobalOff(it) },
                 modifier = Modifier.height(24.dp)
             )
+        }
+    }
+}
+
+@Composable
+private fun TimerPauseOnLockSection(popupViewModel: KLVWPopupViewModel) {
+    val homeImage by popupViewModel.homeImageTimerPauseOnLock.collectAsStateWithLifecycle()
+    val homeVideo by popupViewModel.homeVideoTimerPauseOnLock.collectAsStateWithLifecycle()
+    val lockImage by popupViewModel.lockImageTimerPauseOnLock.collectAsStateWithLifecycle()
+    val lockVideo by popupViewModel.lockVideoTimerPauseOnLock.collectAsStateWithLifecycle()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(22.dp),
+                tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text("Pause on Lock (P.o.L)", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "Each enabled timer can pause automatically when you lock the device " +
+                    "and resume when you unlock.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        listOf(
+            "home_image" to "Home Image",
+            "home_video" to "Home Video",
+            "lock_image" to "Lock Image",
+            "lock_video" to "Lock Video"
+        ).forEach { (key, label) ->
+            val checked = when (key) {
+                "home_image" -> homeImage
+                "home_video" -> homeVideo
+                "lock_image" -> lockImage
+                else         -> lockVideo
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                Switch(
+                    checked = checked,
+                    onCheckedChange = { popupViewModel.setTimerPauseOnLock(key, it) },
+                    modifier = Modifier.height(24.dp)
+                )
+            }
         }
     }
 }

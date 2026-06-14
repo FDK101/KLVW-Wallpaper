@@ -46,7 +46,12 @@ class WallpaperTimerReceiver : BroadcastReceiver() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val timerManager = ep.timerManager()
+                // Check both in-memory state and the persisted DataStore set (generalPausedTimers).
+                // If the process was killed while locked, _paused resets to false but
+                // generalPausedTimers still records the pause (covers both P.o.L and notification
+                // pauses) — the DataStore check is the safety net for process restart.
                 val paused = timerManager.paused.value[key] == true
+                          || ep.prefs().generalPausedTimers.first().contains(key)
                 if (!paused && ep.prefs().appEnabled.first()) {
                     val (type, target) = keyToTypeTarget(key)
                     val uri = defaultFolderUri(ep.prefs(), type, target)
@@ -56,11 +61,14 @@ class WallpaperTimerReceiver : BroadcastReceiver() {
                         if (item != null) ep.wallpaperRepository().setWallpaper(item, target)
                     }
                 }
-                // Reschedule next firing — launchTimer's collectLatest will cancel it if disabled/paused
-                val intervalMin = intervalForKey(ep.prefs(), key)
-                timerManager.scheduleAlarm(key, intervalMin)
-                // Refresh the notification so the countdown resets to the new fire time
-                TimerStatusNotificationHelper.refreshIfVisible(context, ep.prefs(), timerManager)
+                // Only reschedule when not paused — calling scheduleAlarm while paused clears
+                // _pausedRemainingMs, destroying the remaining time that resume() needs to restore.
+                // When paused, launchTimer handles rescheduling once the timer is resumed.
+                if (!paused) {
+                    val intervalMin = intervalForKey(ep.prefs(), key)
+                    timerManager.scheduleAlarm(key, intervalMin)
+                    TimerStatusNotificationHelper.refreshIfVisible(context, ep.prefs(), timerManager)
+                }
             } finally {
                 pendingResult.finish()
             }

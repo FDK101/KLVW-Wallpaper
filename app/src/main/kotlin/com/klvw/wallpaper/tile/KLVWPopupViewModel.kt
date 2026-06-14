@@ -68,6 +68,10 @@ class KLVWPopupViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
     val popupSecondaryTextColor: StateFlow<String?> = prefs.popupSecondaryTextColor
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    val popupTimerHighlightColor: StateFlow<String?> = prefs.popupTimerHighlightColor
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    val popupTimerBorderColor: StateFlow<String?> = prefs.popupTimerBorderColor
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
     val popupLayout: StateFlow<String> = prefs.popupLayout
         .stateIn(viewModelScope, SharingStarted.Eagerly, "list")
     val popupGridColumns: StateFlow<Int> = prefs.popupGridColumns
@@ -138,6 +142,14 @@ class KLVWPopupViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val lockVideoTimerIntervalMin: StateFlow<Int> = prefs.lockVideoTimerIntervalMin
         .stateIn(viewModelScope, SharingStarted.Eagerly, 60)
+    val homeImageTimerPauseOnLock: StateFlow<Boolean> = prefs.homeImageTimerPauseOnLock
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val homeVideoTimerPauseOnLock: StateFlow<Boolean> = prefs.homeVideoTimerPauseOnLock
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val lockImageTimerPauseOnLock: StateFlow<Boolean> = prefs.lockImageTimerPauseOnLock
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val lockVideoTimerPauseOnLock: StateFlow<Boolean> = prefs.lockVideoTimerPauseOnLock
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     val pujieWatchFaces: StateFlow<List<PujieWatchFacePreset>> = prefs.pujieWatchFacesJson
         .map { PujieWatchFacePreset.fromJsonArray(it) }
@@ -182,6 +194,8 @@ class KLVWPopupViewModel @Inject constructor(
     fun setPopupBgColor(hex: String?) { viewModelScope.launch { prefs.setPopupBgColor(hex) } }
     fun setPopupPrimaryTextColor(hex: String?) { viewModelScope.launch { prefs.setPopupPrimaryTextColor(hex) } }
     fun setPopupSecondaryTextColor(hex: String?) { viewModelScope.launch { prefs.setPopupSecondaryTextColor(hex) } }
+    fun setPopupTimerHighlightColor(hex: String?) { viewModelScope.launch { prefs.setPopupTimerHighlightColor(hex) } }
+    fun setPopupTimerBorderColor(hex: String?) { viewModelScope.launch { prefs.setPopupTimerBorderColor(hex) } }
     fun setPopupLayout(layout: String) { viewModelScope.launch { prefs.setPopupLayout(layout) } }
     fun setPopupGridColumns(columns: Int) { viewModelScope.launch { prefs.setPopupGridColumns(columns) } }
     fun setPopupWidthFraction(f: Float) { viewModelScope.launch { prefs.setPopupWidthFraction(f) } }
@@ -224,6 +238,7 @@ class KLVWPopupViewModel @Inject constructor(
     fun resumeTimer(key: String) = timerManager.resume(key)
     fun setTimerEnabled(key: String, enabled: Boolean) { viewModelScope.launch { prefs.setTimerEnabled(key, enabled) } }
     fun setTimerInterval(key: String, minutes: Int) { viewModelScope.launch { prefs.setTimerInterval(key, minutes) } }
+    fun setTimerPauseOnLock(key: String, enabled: Boolean) { viewModelScope.launch { prefs.setTimerPauseOnLock(key, enabled) } }
 
     fun saveItems(items: List<PopupItem>) {
         viewModelScope.launch { prefs.setPopupItemsJson(items.toJsonString()) }

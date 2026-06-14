@@ -165,10 +165,32 @@ Four independent timers, each with its own enable switch, interval, and pause/re
 ### Controls
 
 - **Enable/Disable switch** — toggles the timer on or off
-- **Pause / Resume** — suspends firing without changing the enabled state; the countdown stops and resumes from the current moment when unpaused
+- **Pause / Resume** — suspends firing without changing the enabled state; the countdown freezes at the current remaining time and resumes exactly from where it left off when unpaused
 - **Countdown display** — shows the time remaining until the next wallpaper change for each active timer
+- **Interval selector** — scrollable chip row; tap any value to reschedule from that moment
 
 Changing the interval takes effect immediately — the next alarm is rescheduled from that moment.
+
+### Pause on Lock (P.o.L)
+
+Each timer has an optional **Pause on Lock** toggle. When enabled:
+
+- The timer automatically pauses the moment the device screen locks and resumes automatically on unlock.
+- The remaining countdown is frozen during the lock period — if 2 h were left when you locked, 2 h will still be left when you unlock.
+- P.o.L state and remaining time are persisted to DataStore so they survive Samsung killing the background process while locked.
+
+**Configure** in **Settings → Wallpaper Timers → Pause on Lock** (per-timer toggles), or directly inside the **Timer Control** overlay in the popup menu.
+
+### Timer Notification
+
+The persistent timer status notification (shown on unlock when enabled) lets you:
+
+- **Tap notification body** — pause all running timers (or resume all if all are paused)
+- **Resume button** — resume paused timers
+- **Reset button** — reschedule to the full interval immediately
+- **Change Now button** — immediately apply the next wallpaper without waiting for the timer
+
+Manual pauses from the notification also survive process restart — the paused state is backed by DataStore alongside P.o.L pauses.
 
 ---
 
@@ -258,6 +280,8 @@ Customise the look of the popup card:
 | Background Color | Hex colour for the popup card background (leave blank for theme default) |
 | Primary Text Color | Hex colour for item labels and headings |
 | Secondary Text Color | Hex colour for subtitles and hints |
+| Timer Interval Highlight | Hex colour for the selected interval chip in the timer panel (leave blank for primary colour at 35% opacity) |
+| Timer Section Border | Hex colour for the border around each timer card in the timer panel (leave blank for white at 15% opacity) |
 
 ---
 
@@ -291,6 +315,7 @@ KLVW registers a broadcast receiver for the action `com.klvw.wallpaper.SET_WALLP
 - KLVW set as the live wallpaper via **Settings → Live Wallpaper → Activate Live Wallpaper**
 - Storage permission (READ_MEDIA_IMAGES / READ_MEDIA_VIDEO on Android 13+)
 - SYSTEM_ALERT_WINDOW permission for the popup overlay (prompted on first use)
+- WAKE_LOCK permission (held briefly on screen-off to ensure P.o.L timer pause completes before the CPU sleeps — no persistent wake lock)
 
 ---
 

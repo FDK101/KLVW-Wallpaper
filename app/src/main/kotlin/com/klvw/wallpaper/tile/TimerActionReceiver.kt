@@ -84,9 +84,7 @@ class TimerActionReceiver : BroadcastReceiver() {
             when (action) {
                 TimerStatusNotificationHelper.VALUE_PAUSE -> timerManager.pause(key)
                 TimerStatusNotificationHelper.VALUE_RESUME -> {
-                    val interval = intervalForKey(prefs, key)
                     timerManager.resume(key)
-                    timerManager.scheduleAlarm(key, interval)
                 }
                 TimerStatusNotificationHelper.VALUE_RESET -> {
                     val interval = intervalForKey(prefs, key)
@@ -107,10 +105,7 @@ class TimerActionReceiver : BroadcastReceiver() {
         ) {
             val allPaused = keys.all { timerManager.paused.value[it] == true }
             if (allPaused) {
-                keys.forEach { key ->
-                    timerManager.resume(key)
-                    timerManager.scheduleAlarm(key, intervalForKey(prefs, key))
-                }
+                keys.forEach { key -> timerManager.resume(key) }
             } else {
                 keys.filter { timerManager.paused.value[it] != true }
                     .forEach { timerManager.pause(it) }

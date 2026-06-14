@@ -16,6 +16,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -42,11 +44,29 @@ class WallpaperTimerManager @Inject constructor(
     private val _nextFireTimes = MutableStateFlow<Map<String, Long>>(emptyMap())
     val nextFireTimes: StateFlow<Map<String, Long>> = _nextFireTimes.asStateFlow()
 
+    // Remaining milliseconds saved when a timer is paused; consumed on resume to restore the countdown.
+    // Storing remaining duration (not absolute timestamp) so the countdown is frozen during the lock period:
+    // on resume, fire time = now + remaining, not the original absolute time which keeps decreasing.
+    // Cleared by scheduleAlarm() so explicit resets (VALUE_RESET) are unaffected.
+    private val _pausedRemainingMs = MutableStateFlow<Map<String, Long>>(emptyMap())
+
     init {
-        launchTimer("home_image")
-        launchTimer("home_video")
-        launchTimer("lock_image")
-        launchTimer("lock_video")
+        // Async: read persisted paused state from DataStore before starting timers so that
+        // paused timers (both P.o.L and manual/notification) don't reschedule after process restart.
+        scope.launch {
+            val pausedKeys = prefs.generalPausedTimers.first()
+            if (pausedKeys.isNotEmpty()) {
+                _paused.update { current -> current + pausedKeys.associateWith { true } }
+            }
+            val remainingTimes = prefs.polPausedFireTimes.first()
+            if (remainingTimes.isNotEmpty()) {
+                _pausedRemainingMs.update { current -> current + remainingTimes }
+            }
+            launchTimer("home_image")
+            launchTimer("home_video")
+            launchTimer("lock_image")
+            launchTimer("lock_video")
+        }
     }
 
     private fun launchTimer(key: String) {
@@ -54,13 +74,22 @@ class WallpaperTimerManager @Inject constructor(
             combine(
                 enabledFlow(key),
                 intervalFlow(key),
-                _paused.map { it[key] == true }
+                _paused.map { it[key] == true }.distinctUntilChanged()
             ) { enabled, intervalMin, paused ->
                 Triple(enabled, intervalMin, paused)
             }.collectLatest { (enabled, intervalMin, paused) ->
                 if (!enabled || paused) {
                     cancelAlarm(key)
                     return@collectLatest
+                }
+                val savedRemaining = _pausedRemainingMs.value[key]
+                if (savedRemaining != null) {
+                    _pausedRemainingMs.update { it - key }
+                    if (savedRemaining > 0) {
+                        scheduleAlarmAt(key, System.currentTimeMillis() + savedRemaining)
+                        awaitCancellation()
+                        return@collectLatest
+                    }
                 }
                 scheduleAlarm(key, intervalMin)
                 // Suspend until collectLatest cancels this block on next pref change
@@ -70,7 +99,15 @@ class WallpaperTimerManager @Inject constructor(
     }
 
     fun scheduleAlarm(key: String, intervalMin: Int) {
+        _pausedRemainingMs.update { it - key }
         val fireAt = System.currentTimeMillis() + intervalMin * 60_000L
+        context.getSystemService(AlarmManager::class.java).setExactAndAllowWhileIdle(
+            AlarmManager.RTC_WAKEUP, fireAt, buildPendingIntent(key)
+        )
+        _nextFireTimes.update { it + (key to fireAt) }
+    }
+
+    private fun scheduleAlarmAt(key: String, fireAt: Long) {
         context.getSystemService(AlarmManager::class.java).setExactAndAllowWhileIdle(
             AlarmManager.RTC_WAKEUP, fireAt, buildPendingIntent(key)
         )
@@ -100,8 +137,45 @@ class WallpaperTimerManager @Inject constructor(
         )
     }
 
-    fun pause(key: String) = _paused.update { it + (key to true) }
-    fun resume(key: String) = _paused.update { it + (key to false) }
+    fun pause(key: String) {
+        _nextFireTimes.value[key]?.let { ft ->
+            // Save remaining duration, not absolute timestamp, so the countdown is frozen
+            // during the lock period. On resume: fire time = now + remaining.
+            val remaining = ft - System.currentTimeMillis()
+            if (remaining > 0) _pausedRemainingMs.update { it + (key to remaining) }
+        }
+        // Cancel the alarm synchronously here, not via launchTimer's async StateFlow response.
+        // launchTimer runs on the Default dispatcher and is only scheduled after pause() returns —
+        // by then the wakelock may be released and the CPU asleep, letting the alarm fire anyway.
+        cancelAlarm(key)
+        _paused.update { it + (key to true) }
+        // Persist so the paused state survives process restart (Samsung kills background process).
+        scope.launch(Dispatchers.IO) { prefs.addGeneralPausedTimer(key) }
+    }
+
+    fun resume(key: String) {
+        _paused.update { it + (key to false) }
+        scope.launch(Dispatchers.IO) { prefs.removeGeneralPausedTimer(key) }
+    }
+
+    // Resume after P.o.L, restoring the remaining duration. Works for both:
+    //  - Process alive: _paused[key] is true, launchTimer is waiting → just set false so it picks up _pausedRemainingMs.
+    //  - Process restart: _paused[key] defaulted to false and launchTimer already called scheduleAlarm → toggle
+    //    true→false so launchTimer cancels the wrong alarm and reschedules with the correct remaining time.
+    //    (With async init this path is now rare since init restores _paused from DataStore first.)
+    fun resumeWithRemainingMs(key: String, savedRemainingMs: Long?) {
+        if (savedRemainingMs != null) {
+            _pausedRemainingMs.update { current ->
+                if (current.containsKey(key)) current else current + (key to savedRemainingMs)
+            }
+        }
+        if (_paused.value[key] == false) {
+            // Process-restart path: force a pause→resume cycle so launchTimer re-runs.
+            _paused.update { it + (key to true) }
+        }
+        _paused.update { it + (key to false) }
+        scope.launch(Dispatchers.IO) { prefs.removeGeneralPausedTimer(key) }
+    }
 
     private fun enabledFlow(key: String): Flow<Boolean> = when (key) {
         "home_image" -> prefs.homeImageTimerEnabled

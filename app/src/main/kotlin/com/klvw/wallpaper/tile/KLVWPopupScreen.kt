@@ -6,10 +6,12 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -30,6 +32,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -65,6 +68,8 @@ fun KLVWPopupScreen(
     val bgHex by viewModel.popupBgColor.collectAsStateWithLifecycle()
     val primaryHex by viewModel.popupPrimaryTextColor.collectAsStateWithLifecycle()
     val secondaryHex by viewModel.popupSecondaryTextColor.collectAsStateWithLifecycle()
+    val timerHighlightHex by viewModel.popupTimerHighlightColor.collectAsStateWithLifecycle()
+    val timerBorderHex by viewModel.popupTimerBorderColor.collectAsStateWithLifecycle()
 
     val themeSurface = MaterialTheme.colorScheme.surface
     val themeOnSurface = MaterialTheme.colorScheme.onSurface
@@ -94,6 +99,10 @@ fun KLVWPopupScreen(
     val lockImageTimerIntervalMin by viewModel.lockImageTimerIntervalMin.collectAsStateWithLifecycle()
     val lockVideoTimerEnabled by viewModel.lockVideoTimerEnabled.collectAsStateWithLifecycle()
     val lockVideoTimerIntervalMin by viewModel.lockVideoTimerIntervalMin.collectAsStateWithLifecycle()
+    val homeImageTimerPauseOnLock by viewModel.homeImageTimerPauseOnLock.collectAsStateWithLifecycle()
+    val homeVideoTimerPauseOnLock by viewModel.homeVideoTimerPauseOnLock.collectAsStateWithLifecycle()
+    val lockImageTimerPauseOnLock by viewModel.lockImageTimerPauseOnLock.collectAsStateWithLifecycle()
+    val lockVideoTimerPauseOnLock by viewModel.lockVideoTimerPauseOnLock.collectAsStateWithLifecycle()
     val displayControlHomeImage by viewModel.displayControlHomeImage.collectAsStateWithLifecycle()
     val displayControlHomeVideo by viewModel.displayControlHomeVideo.collectAsStateWithLifecycle()
     val displayControlLockImage by viewModel.displayControlLockImage.collectAsStateWithLifecycle()
@@ -106,6 +115,10 @@ fun KLVWPopupScreen(
     val cardBgColor = bgHex?.let { hexToComposeColor(it) } ?: themeSurface.copy(alpha = 0.95f)
     val primaryTextColor = primaryHex?.let { hexToComposeColor(it) } ?: themeOnSurface
     val secondaryTextColor = secondaryHex?.let { hexToComposeColor(it) } ?: themeOnSurfaceVariant
+    val timerHighlightColor = timerHighlightHex?.let { hexToComposeColor(it) }
+        ?: MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+    val timerBorderColor = timerBorderHex?.let { hexToComposeColor(it) }
+        ?: Color.White.copy(alpha = 0.15f)
 
     var pendingFolderItem by remember { mutableStateOf<PopupItem?>(null) }
     var pendingIconColorItem by remember { mutableStateOf<PopupItem?>(null) }
@@ -341,6 +354,8 @@ fun KLVWPopupScreen(
                 cardBgColor = cardBgColor,
                 primaryTextColor = primaryTextColor,
                 secondaryTextColor = secondaryTextColor,
+                timerHighlightColor = timerHighlightColor,
+                timerBorderColor = timerBorderColor,
                 popupWidthFraction = popupWidthFraction,
                 scaleToPopupWidth = popupScaleTimer,
                 timerPaused = timerPaused,
@@ -353,10 +368,17 @@ fun KLVWPopupScreen(
                 lockImageIntervalMin = lockImageTimerIntervalMin,
                 lockVideoEnabled = lockVideoTimerEnabled,
                 lockVideoIntervalMin = lockVideoTimerIntervalMin,
+                pauseOnLock = mapOf(
+                    "home_image" to homeImageTimerPauseOnLock,
+                    "home_video" to homeVideoTimerPauseOnLock,
+                    "lock_image" to lockImageTimerPauseOnLock,
+                    "lock_video" to lockVideoTimerPauseOnLock
+                ),
                 onToggleEnabled = { key, enabled -> viewModel.setTimerEnabled(key, enabled) },
                 onSetInterval = { key, min -> viewModel.setTimerInterval(key, min) },
                 onPause = { key -> viewModel.pauseTimer(key) },
                 onResume = { key -> viewModel.resumeTimer(key) },
+                onSetPauseOnLock = { key, enabled -> viewModel.setTimerPauseOnLock(key, enabled) },
                 onDismiss = { showTimerDialog = false }
             )
         }
@@ -557,6 +579,8 @@ private fun TimerControlOverlay(
     cardBgColor: Color,
     primaryTextColor: Color,
     secondaryTextColor: Color,
+    timerHighlightColor: Color,
+    timerBorderColor: Color,
     popupWidthFraction: Float,
     scaleToPopupWidth: Boolean,
     timerPaused: Map<String, Boolean>,
@@ -569,10 +593,12 @@ private fun TimerControlOverlay(
     lockImageIntervalMin: Int,
     lockVideoEnabled: Boolean,
     lockVideoIntervalMin: Int,
+    pauseOnLock: Map<String, Boolean>,
     onToggleEnabled: (String, Boolean) -> Unit,
     onSetInterval: (String, Int) -> Unit,
     onPause: (String) -> Unit,
     onResume: (String) -> Unit,
+    onSetPauseOnLock: (String, Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
     val timers = listOf(
@@ -668,54 +694,106 @@ private fun TimerControlOverlay(
                 HorizontalDivider()
                 timers.forEach { row ->
                     val paused = timerPaused[row.key] == true
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
+                    val listState = rememberLazyListState()
+                    val selectedIndex = TIMER_INTERVALS.indexOf(row.intervalMin).coerceAtLeast(0)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .border(0.5.dp, timerBorderColor, RoundedCornerShape(12.dp))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Text(
-                                row.label,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = primaryTextColor,
-                                modifier = Modifier.weight(1f)
-                            )
-                            if (row.enabled && paused) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Text(
-                                    "Paused",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.padding(end = 8.dp)
+                                    row.label,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = primaryTextColor,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                if (row.enabled && paused) {
+                                    Text(
+                                        "Paused",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.padding(end = 8.dp)
+                                    )
+                                }
+                                if (row.enabled) {
+                                    IconButton(
+                                        onClick = { if (paused) onResume(row.key) else onPause(row.key) },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            if (paused) Icons.Default.PlayArrow else Icons.Default.Pause,
+                                            contentDescription = if (paused) "Resume" else "Pause",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                                Switch(
+                                    checked = row.enabled,
+                                    onCheckedChange = { onToggleEnabled(row.key, it) },
+                                    modifier = Modifier.height(24.dp)
                                 )
                             }
                             if (row.enabled) {
-                                IconButton(
-                                    onClick = { if (paused) onResume(row.key) else onPause(row.key) },
-                                    modifier = Modifier.size(32.dp)
+                                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                                    val density = LocalDensity.current
+                                    val viewportPx = with(density) { maxWidth.toPx() }
+                                    val chipHalfPx = with(density) { 28.dp.toPx() }
+                                    LaunchedEffect(selectedIndex) {
+                                        listState.animateScrollToItem(
+                                            selectedIndex,
+                                            scrollOffset = -(viewportPx / 2 - chipHalfPx).toInt()
+                                        )
+                                    }
+                                    LazyRow(
+                                        state = listState,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        contentPadding = PaddingValues(horizontal = 2.dp)
+                                    ) {
+                                        lazyItems(TIMER_INTERVALS) { min ->
+                                            FilterChip(
+                                                selected = row.intervalMin == min,
+                                                onClick = { onSetInterval(row.key, min) },
+                                                label = { Text(minuteLabel(min), style = MaterialTheme.typography.labelSmall) },
+                                                colors = if (row.intervalMin == min) FilterChipDefaults.filterChipColors(
+                                                    selectedContainerColor = timerHighlightColor,
+                                                    selectedLabelColor = primaryTextColor
+                                                ) else FilterChipDefaults.filterChipColors()
+                                            )
+                                        }
+                                    }
+                                }
+                                // P.o.L toggle — only shown when timer is enabled
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Icon(
-                                        if (paused) Icons.Default.PlayArrow else Icons.Default.Pause,
-                                        contentDescription = if (paused) "Resume" else "Pause",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(18.dp)
+                                        Icons.Default.Lock,
+                                        contentDescription = null,
+                                        tint = secondaryTextColor,
+                                        modifier = Modifier.size(14.dp)
                                     )
-                                }
-                            }
-                            Switch(
-                                checked = row.enabled,
-                                onCheckedChange = { onToggleEnabled(row.key, it) },
-                                modifier = Modifier.height(24.dp)
-                            )
-                        }
-                        if (row.enabled) {
-                            LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                contentPadding = PaddingValues(horizontal = 2.dp)
-                            ) {
-                                lazyItems(TIMER_INTERVALS) { min ->
-                                    FilterChip(
-                                        selected = row.intervalMin == min,
-                                        onClick = { onSetInterval(row.key, min) },
-                                        label = { Text(minuteLabel(min), style = MaterialTheme.typography.labelSmall) }
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        "Pause on lock",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = secondaryTextColor,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Switch(
+                                        checked = pauseOnLock[row.key] == true,
+                                        onCheckedChange = { onSetPauseOnLock(row.key, it) },
+                                        modifier = Modifier.height(20.dp)
                                     )
                                 }
                             }

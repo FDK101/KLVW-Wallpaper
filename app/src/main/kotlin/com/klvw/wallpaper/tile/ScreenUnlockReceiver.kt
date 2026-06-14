@@ -53,6 +53,18 @@ class ScreenUnlockReceiver : BroadcastReceiver() {
                     resetTimersForScreen("lock", prefs, ep.timerManager())
                 }
 
+                // P.o.L — resume any timers that were paused when the device locked
+                // Must run before the notification so paused.value reflects the resumed state
+                val polPaused = prefs.polPausedTimers.first()
+                if (polPaused.isNotEmpty()) {
+                    val remainingTimes = prefs.polPausedFireTimes.first()
+                    polPaused.forEach { key ->
+                        ep.timerManager().resumeWithRemainingMs(key, remainingTimes[key])
+                    }
+                    prefs.setPolPausedTimers(emptySet())
+                    prefs.setPolPausedFireTimes(emptyMap())
+                }
+
                 if (prefs.timerUnlockNotification.first()) {
                     showTimerNotificationIfNeeded(context, prefs, ep.timerManager())
                 }

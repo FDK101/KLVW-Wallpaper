@@ -74,10 +74,41 @@ class KLVWApplication : Application(), SingletonImageLoader.Factory {
         registerReceiver(object : BroadcastReceiver() {
             override fun onReceive(ctx: Context, intent: Intent) {
                 screenOn.value = intent.action == Intent.ACTION_SCREEN_ON
-                if (intent.action == Intent.ACTION_SCREEN_OFF && AerLockStore.isMounted) {
+                if (intent.action == Intent.ACTION_SCREEN_OFF) {
+                    // Acquire a wakelock so the coroutine below completes before the CPU sleeps.
+                    val wl = powerManager?.newWakeLock(
+                        PowerManager.PARTIAL_WAKE_LOCK, "KLVW:ScreenOffWork"
+                    )
+                    wl?.acquire(5_000L)
                     appScope.launch {
-                        if (prefs.aerUnmountOnLock.first()) {
-                            AerLockStore.lock(ctx.applicationContext)
+                        try {
+                            // Aer auto-unmount on lock
+                            if (AerLockStore.isMounted && prefs.aerUnmountOnLock.first()) {
+                                AerLockStore.lock(ctx.applicationContext)
+                            }
+                            // P.o.L — pause timers whose "Pause on Lock" option is enabled
+                            val allKeys = listOf("home_image", "home_video", "lock_image", "lock_video")
+                            val toPause = allKeys.filter { key ->
+                                polEnabled(key) && timerIsEnabled(key) &&
+                                timerManager.paused.value[key] != true
+                            }
+                            if (toPause.isNotEmpty()) {
+                                // Capture remaining durations BEFORE pause() cancels alarms and removes _nextFireTimes.
+                                // We store remaining ms (not absolute timestamps) so the countdown is frozen during
+                                // the lock: on resume fire time = now + remaining, not the original absolute time.
+                                val now = System.currentTimeMillis()
+                                val remainingTimes = toPause.mapNotNull { key ->
+                                    timerManager.nextFireTimes.value[key]?.let { absTime ->
+                                        val remaining = absTime - now
+                                        if (remaining > 0) key to remaining else null
+                                    }
+                                }.toMap()
+                                toPause.forEach { timerManager.pause(it) }
+                                prefs.setPolPausedTimers(toPause.toSet())
+                                if (remainingTimes.isNotEmpty()) prefs.setPolPausedFireTimes(remainingTimes)
+                            }
+                        } finally {
+                            if (wl?.isHeld == true) wl.release()
                         }
                     }
                 }
@@ -153,6 +184,22 @@ class KLVWApplication : Application(), SingletonImageLoader.Factory {
                 TimerStatusNotificationHelper.show(applicationContext, enabled, paused, fires)
             }
         }
+    }
+
+    private suspend fun polEnabled(key: String): Boolean = when (key) {
+        "home_image" -> prefs.homeImageTimerPauseOnLock.first()
+        "home_video" -> prefs.homeVideoTimerPauseOnLock.first()
+        "lock_image" -> prefs.lockImageTimerPauseOnLock.first()
+        "lock_video" -> prefs.lockVideoTimerPauseOnLock.first()
+        else -> false
+    }
+
+    private suspend fun timerIsEnabled(key: String): Boolean = when (key) {
+        "home_image" -> prefs.homeImageTimerEnabled.first()
+        "home_video" -> prefs.homeVideoTimerEnabled.first()
+        "lock_image" -> prefs.lockImageTimerEnabled.first()
+        "lock_video" -> prefs.lockVideoTimerEnabled.first()
+        else -> false
     }
 
     private suspend fun handleWatchExecute(data: ByteArray) {

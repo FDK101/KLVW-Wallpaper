@@ -4,6 +4,8 @@
 
     <!-- Vibrate phone as feedback when Global Off is triggered from the watch -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Wakelock held briefly on screen-off to ensure P.o.L timer pause completes before CPU sleeps -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
